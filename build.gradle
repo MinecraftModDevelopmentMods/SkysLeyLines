@@ -1,0 +1,254 @@
+import org.gradle.plugins.ide.eclipse.model.SourceFolder
+import org.gradle.plugins.ide.eclipse.model.Library
+import groovy.xml.XmlSlurper
+
+plugins {
+    id 'java-library'
+    id 'eclipse'
+    id 'idea'
+    id 'maven-publish'
+    id 'net.neoforged.gradle.userdev' version '7.1.38'
+}
+
+gradle.sharedServices.registrations.named('CachedExecutionService') {
+    parameters.cacheDirectory.set(layout.projectDirectory.dir('.gradle/neo-execution').asFile.absolutePath)
+}
+version = mod_version
+group = mod_group_id
+base.archivesName = 'SkysLeyLines'
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+        vendor = JvmVendorSpec.ADOPTIUM
+    }
+    withSourcesJar()
+    withJavadocJar()
+}
+repositories { mavenCentral() }
+def guardedGlfw = layout.projectDirectory.file('runtime/windows-x86_64/glfw.dll')
+def windowsX64 = System.getProperty('os.name').startsWith('Windows') &&
+        System.getProperty('os.arch') in ['amd64', 'x86_64']
+tasks.register('verifyGlfwRuntime') {
+    inputs.files guardedGlfw, file('runtime/windows-x86_64/glfw.sha256')
+    doLast {
+        def expected = file('runtime/windows-x86_64/glfw.sha256').text.trim()
+        def actual = java.security.MessageDigest.getInstance('SHA-256').digest(guardedGlfw.asFile.bytes).encodeHex().toString()
+        if (!(expected ==~ /[A-F0-9]{64}/) || !actual.equalsIgnoreCase(expected)) {
+            throw new GradleException('Project GLFW runtime changed; restore runtime/windows-x86_64 or rebuild it with scripts/Build-GlfwRuntime.ps1')
+        }
+    }
+}
+dependencies {
+    implementation "net.neoforged:neoforge:${neo_version}"
+    testImplementation platform('org.junit:junit-bom:5.10.2')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+sourceSets {
+    runtimeProbe {
+        compileClasspath += sourceSets.main.output + sourceSets.main.compileClasspath
+        runtimeClasspath += output + compileClasspath
+    }
+}
+runs {
+    configureEach {
+        workingDirectory layout.projectDirectory.dir('run').dir(name)
+        modSource sourceSets.main
+        systemProperty 'forge.logging.console.level', 'info'
+    }
+    client {
+        if (windowsX64) systemProperty 'org.lwjgl.glfw.libname', guardedGlfw.asFile.absolutePath
+        if (providers.gradleProperty('leyClientWorld').isPresent()) {
+            argument '--quickPlaySingleplayer'
+            argument providers.gradleProperty('leyClientWorld').get()
+        }
+    }
+    server { argument '--nogui' }
+    register('probeServer') {
+        runType 'server'
+        workingDirectory layout.buildDirectory.dir('probe-server')
+        modSource sourceSets.main
+        systemProperty 'skysleylines.runtimeProbe', 'true'
+        systemProperty 'skysleylines.probePhase', providers.gradleProperty('probePhase').getOrElse('fresh')
+        argument '--nogui'
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}
+tasks.named('test', Test) {
+    useJUnitPlatform()
+    systemProperty 'log4j.configurationFile', file('src/test/resources/log4j2-test.xml').absolutePath
+}
+tasks.withType(AbstractArchiveTask).configureEach {
+    preserveFileTimestamps = false
+    reproducibleFileOrder = true
+}
+tasks.named('processResources', ProcessResources) {
+    def properties = [mod_id: mod_id, mod_name: mod_name, mod_version: mod_version, mod_license: mod_license]
+    inputs.properties properties
+    filesMatching('META-INF/neoforge.mods.toml') { expand properties }
+    from('docs') { into 'META-INF/skysleylines/docs' }
+    from('LICENSE')
+}
+tasks.named('jar', Jar) {
+    manifest.attributes('Specification-Title': "Sky's Ley Lines", 'Specification-Version': '2',
+            'Implementation-Version': project.version, 'SkysLeyLines-API-Version': '2',
+            'SkysLeyLines-Layout-Version': '1', 'SkysLeyLines-Save-Schema': '2')
+}
+tasks.named('javadoc', Javadoc) {
+    options.encoding = 'UTF-8'
+    options.addBooleanOption('notimestamp', true)
+    options.addStringOption('Xdoclint:none', '-quiet')
+}
+tasks.register('runtimeProbeJar', Jar) {
+    dependsOn tasks.named('runtimeProbeClasses')
+    from sourceSets.runtimeProbe.output
+    archiveClassifier = 'runtime-probe'
+    destinationDirectory = layout.buildDirectory.dir('validation-tools')
+}
+// A separate jar gives the probe its own mod root. Combining both source sets
+// under NeoGradle's one project mod-source group makes their metadata collide.
+tasks.configureEach { if (name == 'runProbeServer') {
+    dependsOn tasks.named('runtimeProbeJar')
+    doFirst {
+        copy {
+            from tasks.named('runtimeProbeJar').get().archiveFile
+            into layout.buildDirectory.dir('probe-server/mods')
+        }
+    }
+} }
+tasks.configureEach {
+    if (windowsX64 && name in ['runClient', 'ideBeforeRunClient']) dependsOn tasks.named('verifyGlfwRuntime')
+}
+
+tasks.register('prepareEclipseResources', Sync) {
+    dependsOn tasks.named('classes')
+    from sourceSets.main.output
+    into 'bin/main'
+}
+tasks.register('configureEclipseEncoding') {
+    doLast {
+        def settings = file('.settings/org.eclipse.core.resources.prefs')
+        def properties = new Properties()
+        if (settings.exists()) settings.withInputStream { properties.load(it) }
+        properties.setProperty('eclipse.preferences.version', '1')
+        properties.setProperty('encoding/<project>', 'UTF-8')
+        settings.parentFile.mkdirs()
+        settings.withOutputStream { properties.store(it, 'Generated by configureEclipseEncoding') }
+    }
+}
+eclipse {
+    project {
+        name = 'SkysLeyLines'
+        natures 'org.eclipse.buildship.core.gradleprojectnature'
+        buildCommand 'org.eclipse.buildship.core.gradleprojectbuilder'
+    }
+    classpath {
+        sourceSets = [project.sourceSets.main]
+        plusConfigurations = [configurations.compileClasspath, configurations.runtimeClasspath]
+        file.whenMerged { cp ->
+            cp.entries.removeAll { it instanceof SourceFolder && it.path == 'src/main/resources' }
+            if (!cp.entries.any { it.path == 'build/resources/main' }) {
+                cp.entries.add(new SourceFolder('build/resources/main', 'bin/main'))
+            }
+            // The resolved NeoForge dependency can also arrive as an unsourced
+            // runtime library. Gradle distinguishes those Library objects, but
+            // Eclipse rejects two entries for the same jar. Fix the model used
+            // by Buildship as well as eclipseClasspath, retaining source links.
+            def unique = new LinkedHashMap()
+            cp.entries.each { entry ->
+                def path = entry.path.replace('\\', '/')
+                if (System.getProperty('os.name').startsWith('Windows')) path = path.toLowerCase(Locale.ROOT)
+                def key = [entry.kind, path]
+                def previous = unique[key]
+                if (previous == null || (entry instanceof Library && previous instanceof Library &&
+                        previous.sourcePath == null && entry.sourcePath != null)) unique[key] = entry
+            }
+            cp.entries = unique.values().toList()
+        }
+    }
+    synchronizationTasks 'prepareEclipseResources', 'configureEclipseEncoding'
+}
+tasks.named('eclipse') {
+    dependsOn tasks.named('prepareEclipseResources'), tasks.named('configureEclipseEncoding')
+    if (windowsX64) dependsOn tasks.named('verifyGlfwRuntime')
+    doLast {
+        def settings = file('.settings/org.eclipse.buildship.core.prefs')
+        settings.parentFile.mkdirs()
+        def p = new Properties()
+        // Buildship owns additional state here, especially the path back to the
+        // Gradle root. Replacing the file makes subsequent imports/refreshes fail
+        // before Gradle runs, without adding a Problems-view error.
+        if (settings.exists()) settings.withInputStream { p.load(it) }
+        if (!p.containsKey('connection.project.dir')) p.setProperty('connection.project.dir', '')
+        p.setProperty('eclipse.preferences.version', '1')
+        p.setProperty('connection.gradle.distribution', 'GRADLE_DISTRIBUTION(WRAPPER)')
+        p.setProperty('override.workspace.settings', 'true')
+        p.setProperty('java.home', System.getProperty('java.home'))
+        p.setProperty('gradle.user.home', System.getenv('GRADLE_USER_HOME') ?: gradle.gradleUserHomeDir.absolutePath)
+        p.setProperty('connection.gradle.user.home', p.getProperty('gradle.user.home'))
+        settings.withOutputStream { p.store(it, 'Generated by eclipse') }
+    }
+}
+tasks.register('verifyEclipseProductionClasspath') {
+    dependsOn tasks.named('eclipse')
+    doLast {
+        def content = file('.classpath').getText('UTF-8')
+        def cp = new XmlSlurper().parseText(content)
+        def seen = new HashSet()
+        cp.classpathentry.each { entry ->
+            def path = entry.@path.text().replace('\\', '/')
+            if (System.getProperty('os.name').startsWith('Windows')) path = path.toLowerCase(Locale.ROOT)
+            if (!seen.add([entry.@kind.text(), path])) throw new GradleException("Duplicate Eclipse classpath entry: ${path}")
+        }
+        def neo = cp.classpathentry.findAll { it.@path.text().endsWith('/neoforge-' + neo_version + '.jar') }
+        if (neo.size() != 1 || neo[0].@sourcepath.text().isEmpty()) {
+            throw new GradleException('Expected one mapped NeoForge library with attached sources')
+        }
+        ['src/test', 'runtimeProbe', 'junit', 'opentest4j', 'src/main/resources'].each {
+            if (content.contains(it)) throw new GradleException("Eclipse classpath exposes ${it}")
+        }
+        if (!content.contains('build/resources/main')) throw new GradleException('Missing processed resources')
+        def encoding = new Properties()
+        file('.settings/org.eclipse.core.resources.prefs').withInputStream { encoding.load(it) }
+        if (encoding.getProperty('encoding/<project>') != 'UTF-8') throw new GradleException('Missing Eclipse project UTF-8 encoding')
+        def buildship = new Properties()
+        file('.settings/org.eclipse.buildship.core.prefs').withInputStream { buildship.load(it) }
+        if (!buildship.containsKey('connection.project.dir')) {
+            throw new GradleException('Missing Buildship root-project location; Eclipse cannot import/refresh this project')
+        }
+        if (new File(projectDir, buildship.getProperty('connection.project.dir')).canonicalFile != rootProject.projectDir.canonicalFile) {
+            throw new GradleException('Buildship root-project location points outside this Gradle build')
+        }
+        if (file('bin/main/META-INF/neoforge.mods.toml').text.contains('${mod_version}')) {
+            throw new GradleException('Unexpanded Eclipse metadata')
+        }
+    }
+}
+tasks.register('verifyArtifacts') {
+    dependsOn tasks.named('jar'), tasks.named('sourcesJar'), tasks.named('javadocJar')
+    doLast {
+        def forbidden = ['org/junit/', 'org/mockito/', 'zone/moddev/mc/skysleylines/probe/', 'META-INF/mods.toml']
+        def jarFile = tasks.named('jar').get().archiveFile.get().asFile
+        new java.util.zip.ZipFile(jarFile).withCloseable { zip ->
+            def entries = zip.entries().collect { it.name }
+            if (entries.any { n -> forbidden.any { n.startsWith(it) } }) throw new GradleException('Artifact contamination')
+            if (!entries.contains('META-INF/neoforge.mods.toml')) throw new GradleException('Missing mod metadata')
+            if (new String(zip.getInputStream(zip.getEntry('META-INF/neoforge.mods.toml')).bytes, 'UTF-8').contains('${')) {
+                throw new GradleException('Unexpanded jar metadata')
+            }
+        }
+        def sums = file("${buildDir}/libs/SHA256SUMS")
+        sums.text = fileTree("${buildDir}/libs") { include '*.jar' }.files.sort { it.name }.collect {
+            java.security.MessageDigest.getInstance('SHA-256').digest(it.bytes).encodeHex().toString() + '  ' + it.name
+        }.join('\n') + '\n'
+    }
+}
+tasks.named('check') { dependsOn tasks.named('verifyArtifacts') }
+publishing {
+    publications { mavenJava(MavenPublication) { from components.java } }
+    repositories { maven { url = layout.projectDirectory.dir('repo') } }
+}

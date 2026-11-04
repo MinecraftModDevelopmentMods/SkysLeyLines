@@ -1,0 +1,144 @@
+{
+  "textures": {
+    "copper": "minecraft:block/copper_block",
+    "particle": "minecraft:block/copper_block"
+  },
+  "elements": [
+    {
+      "to": [
+        8.6,
+        7,
+        8.6
+      ],
+      "from": [
+        7.4,
+        0,
+        7.4
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            0,
+            0,
+            2,
+            16
+          ],
+          "texture": "#copper"
+        },
+        "south": {
+          "uv": [
+            0,
+            0,
+            2,
+            16
+          ],
+          "texture": "#copper"
+        },
+        "east": {
+          "uv": [
+            0,
+            0,
+            2,
+            16
+          ],
+          "texture": "#copper"
+        },
+        "west": {
+          "uv": [
+            0,
+            0,
+            2,
+            16
+          ],
+          "texture": "#copper"
+        },
+        "up": {
+          "uv": [
+            0,
+            0,
+            2,
+            16
+          ],
+          "texture": "#copper"
+        },
+        "down": {
+          "uv": [
+            0,
+            0,
+            2,
+            16
+          ],
+          "texture": "#copper"
+        }
+      }
+    },
+    {
+      "to": [
+        8.6,
+        7,
+        8.6
+      ],
+      "from": [
+        7.4,
+        6,
+        -5
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            0,
+            0,
+            2,
+            16
+          ],
+          "texture": "#copper"
+        },
+        "south": {
+          "uv": [
+            0,
+            0,
+            2,
+            16
+          ],
+          "texture": "#copper"
+        },
+        "east": {
+          "uv": [
+            0,
+            0,
+            2,
+            16
+          ],
+          "texture": "#copper"
+        },
+        "west": {
+          "uv": [
+            0,
+            0,
+            2,
+            16
+          ],
+          "texture": "#copper"
+        },
+        "up": {
+          "uv": [
+            0,
+            0,
+            2,
+            16
+          ],
+          "texture": "#copper"
+        },
+        "down": {
+          "uv": [
+            0,
+            0,
+            2,
+            16
+          ],
+          "texture": "#copper"
+        }
+      }
+    }
+  ]
+}

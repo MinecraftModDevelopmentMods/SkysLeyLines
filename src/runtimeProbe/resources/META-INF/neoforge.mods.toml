@@ -1,0 +1,13 @@
+modLoader="javafml"
+loaderVersion="[3,)"
+license="LGPL-2.1"
+[[mods]]
+modId="leyruntimeprobe"
+version="1"
+displayName="Ley Lines disposable runtime consumer"
+[[dependencies.leyruntimeprobe]]
+modId="skysleylines"
+type="required"
+versionRange="[0.2.0.121012]"
+ordering="AFTER"
+side="BOTH"

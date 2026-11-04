@@ -1,0 +1,12 @@
+.gradle/
+build/
+bin/
+run/
+repo/
+.classpath
+.project
+.settings/
+*.launch
+agent-notes/
+AGENTS.md
+scripts/glfw-repro/obj/
