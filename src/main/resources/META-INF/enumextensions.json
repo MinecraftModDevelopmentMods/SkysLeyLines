@@ -1,0 +1,11 @@
+{
+  "entries": [{
+    "enum": "net/minecraft/client/model/HumanoidModel$ArmPose",
+    "name": "SKYSLEYLINES_DOWSING",
+    "constructor": "(ZLnet/neoforged/neoforge/client/IArmPoseTransformer;)V",
+    "parameters": {
+      "class": "zone/moddev/mc/skysleylines/client/DowsingArmPose",
+      "field": "DOWSING"
+    }
+  }]
+}

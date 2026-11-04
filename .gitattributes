@@ -1,0 +1,8 @@
+* text=auto eol=lf
+*.bat text eol=crlf
+*.jar binary
+*.dll binary
+
+# Gradle packages these files verbatim. Keep their bytes stable across checkouts.
+docs/*.md -text
+src/main/resources/assets/** -text

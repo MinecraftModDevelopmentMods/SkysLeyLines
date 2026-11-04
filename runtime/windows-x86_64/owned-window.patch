@@ -1,0 +1,21 @@
+diff --git a/src/win32_window.c b/src/win32_window.c
+index ce29c1f..ccc40e9 100644
+--- a/src/win32_window.c
++++ b/src/win32_window.c
+@@ -2154,7 +2154,15 @@ void _glfwPollEventsWin32(void)
+     handle = GetActiveWindow();
+     if (handle)
+     {
+-        window = GetPropW(handle, L"GLFW");
++        // Sky's Ley Lines local runtime fix (2026-11-03).
++        // Attached input queues may expose another process's active HWND.
++        // Its GLFW property is not a pointer into this library's address space.
++        // Match an owned window without dereferencing the foreign property.
++        for (window = _glfw.windowListHead; window; window = window->next)
++        {
++            if (window->win32.handle == handle)
++                break;
++        }
+         if (window)
+         {
+             int i;
