@@ -26,7 +26,11 @@ This development note is checkout documentation. Keep machine-specific build pat
 
 CI validates the wrapper and builds the ordinary, sources, and Javadoc JARs on Java 21. It publishes a checksum manifest with the artifacts and the changelog. Download the bundle named for the commit you want to test and use the ordinary JAR for the client and dedicated server checks.
 
-After merge, take the CI run ID from the MMD branch push and verify its ordinary JAR matches the tested SHA-256. Open **Deploy Sky’s Ley Lines beta** on that branch and enter the run ID and tested SHA-256. Leave confirmation off for a dry run. With confirmation on, the workflow uploads the verified ordinary JAR as a beta to CurseForge project 1783346. It uses the `CURSEFORGE_TOKEN` upload secret in the repository or its `release` environment. Check the returned file ID and the public file listing separately.
+After merge, take the CI run ID from the MMD branch push and verify its ordinary JAR matches the tested SHA-256. Open **Deploy Sky’s Ley Lines beta** on that branch and enter the run ID and tested SHA-256. Leave `confirm_publication` off to verify the bundle without publishing. With confirmation on, the default target publishes to MMD Maven first and then CurseForge.
+
+The Maven job publishes the prepared JAR, sources, and Javadocs. It uses `MAVEN_UPLOAD_URL`, `MAVEN_UPLOAD_USERNAME`, and `MAVEN_UPLOAD_PASSWORD`, then downloads the public files and compares them to the bundle. The Maven coordinate is `zone.moddev.mc.skysleylines:SkysLeyLines:<version>`.
+
+The CurseForge job uses `CURSEFORGE_TOKEN` to upload the ordinary JAR to project 1783346 as a beta. Check the returned file ID and the public file listing separately. For a Maven backfill of a version already on CurseForge, select the `maven` target and check that the merged CI bundle matches the released JAR’s checksum.
 
 Research references:
 

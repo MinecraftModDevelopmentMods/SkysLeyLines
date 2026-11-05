@@ -11,8 +11,13 @@ on:
         description: SHA-256 of the playtested ordinary mod JAR
         type: string
         required: true
+      publication_target:
+        description: Destination for the verified release
+        type: choice
+        default: both
+        options: [both, maven, curseforge]
       confirm_publication:
-        description: Upload the verified JAR to CurseForge as a beta
+        description: Publish to the selected destination
         type: boolean
         default: false
 
@@ -21,7 +26,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: skysleylines-curseforge-beta
+  group: skysleylines-beta-publication
   cancel-in-progress: false
 
 jobs:
@@ -72,10 +77,70 @@ jobs:
           printf '%s  %s\n' "${TESTED_SHA256,,}" "$jar" | sha256sum --check --strict
           printf 'jar=%s\nversion=%s\n' "$jar" "$version" >> "$GITHUB_OUTPUT"
 
+  publish_maven:
+    name: Publish MMD Maven
+    needs: verify
+    if: inputs.confirm_publication && inputs.publication_target != 'curseforge'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: release
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: '21.0.7+6.0.LTS'
+      - uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: SkysLeyLines-${{ github.sha }}
+          path: ${{ runner.temp }}/release
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.ci_run_id }}
+      - name: Publish the prepared Maven artifacts
+        env:
+          MAVEN_UPLOAD_URL: ${{ secrets.MAVEN_UPLOAD_URL }}
+          MAVEN_UPLOAD_USERNAME: ${{ secrets.MAVEN_UPLOAD_USERNAME }}
+          MAVEN_UPLOAD_PASSWORD: ${{ secrets.MAVEN_UPLOAD_PASSWORD }}
+          TESTED_SHA256: ${{ inputs.tested_sha256 }}
+          JAR: ${{ needs.verify.outputs.jar }}
+        run: |
+          set -euo pipefail
+          if [[ "${MAVEN_UPLOAD_URL:-}" != https://* || -z "${MAVEN_UPLOAD_USERNAME:-}" || -z "${MAVEN_UPLOAD_PASSWORD:-}" ]]; then
+            echo "::error::MMD Maven publication needs an HTTPS MAVEN_UPLOAD_URL, MAVEN_UPLOAD_USERNAME, and MAVEN_UPLOAD_PASSWORD."
+            exit 1
+          fi
+          bundle="$RUNNER_TEMP/release"
+          (cd "$bundle" && sha256sum --check --strict SHA256SUMS &&
+            printf '%s  %s\n' "${TESTED_SHA256,,}" "$JAR" | sha256sum --check --strict)
+          ./gradlew publishMavenJavaPublicationToReleaseRepository \
+            -PpreparedReleaseDir="$bundle" --no-daemon --stacktrace --max-workers=2
+      - name: Verify the public Maven downloads
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: |
+          set -euo pipefail
+          stem="SkysLeyLines-$VERSION"
+          url="https://maven.moddev.zone/releases/zone/moddev/mc/skysleylines/SkysLeyLines/$VERSION"
+          for suffix in .jar -sources.jar -javadoc.jar .pom; do
+            curl --fail --silent --show-error --location --retry 3 --retry-all-errors --max-time 30 \
+              "$url/$stem$suffix" --output "$RUNNER_TEMP/$stem$suffix"
+          done
+          for suffix in .jar -sources.jar -javadoc.jar; do
+            cmp "$RUNNER_TEMP/release/$stem$suffix" "$RUNNER_TEMP/$stem$suffix"
+          done
+          cmp build/publications/mavenJava/pom-default.xml "$RUNNER_TEMP/$stem.pom"
+          printf 'Verified MMD Maven publication of `zone.moddev.mc.skysleylines:SkysLeyLines:%s`.\n' "$VERSION" >> "$GITHUB_STEP_SUMMARY"
+
   publish:
     name: Publish CurseForge beta
-    needs: verify
-    if: inputs.confirm_publication
+    needs: [verify, publish_maven]
+    if: >-
+      always() && !cancelled() && needs.verify.result == 'success' &&
+      inputs.confirm_publication && inputs.publication_target != 'maven' &&
+      (needs.publish_maven.result == 'success' || needs.publish_maven.result == 'skipped')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: release
