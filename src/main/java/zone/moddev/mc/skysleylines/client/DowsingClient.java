@@ -23,6 +23,7 @@ import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.item.ItemStack;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.IEventBus;
+import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.common.Mod;
 import net.neoforged.neoforge.client.event.ClientTickEvent;
 import net.neoforged.neoforge.client.event.EntityRenderersEvent;
@@ -30,6 +31,8 @@ import net.neoforged.neoforge.client.event.ModelEvent;
 import net.neoforged.neoforge.client.event.RenderHandEvent;
 import net.neoforged.neoforge.client.extensions.common.IClientItemExtensions;
 import net.neoforged.neoforge.client.extensions.common.RegisterClientExtensionsEvent;
+import net.neoforged.neoforge.client.gui.ConfigurationScreen;
+import net.neoforged.neoforge.client.gui.IConfigScreenFactory;
 import net.neoforged.neoforge.common.NeoForge;
 import zone.moddev.mc.skysleylines.SkysLeyLines;
 import zone.moddev.mc.skysleylines.item.*;
@@ -44,7 +47,9 @@ public final class DowsingClient {
     private static ClientLevel lastLevel;
     private static PlayerModel<AbstractClientPlayer> wideHands, slimHands;
 
-    public DowsingClient(IEventBus bus) {
+    public DowsingClient(IEventBus bus, ModContainer container) {
+        container.registerExtensionPoint(IConfigScreenFactory.class,
+                (mod, parent) -> new ConfigurationScreen(mod, parent, LeyConfigSection::new));
         bus.addListener((ModelEvent.RegisterAdditional event) -> { event.register(ROD); event.register(ICON); });
         bus.addListener(DowsingClient::extensions);
         bus.addListener((EntityRenderersEvent.AddLayers event) -> {

@@ -130,6 +130,14 @@ class NexusLedgerTest {
         var l = ledger(); tx(l, 0, CONVERT, 10); l.bindCurrencies(Map.of());
         assertEquals(MagicAmount.of(20), l.quote(NODE, 20, 1000).total());
         assertEquals(INACTIVE_CURRENCY, tx(l, 0, CONVERT, 1).status()); assertEquals(INACTIVE_CURRENCY, tx(l, 0, SPEND, 1).status());
+        long beforeReturn = l.revision();
+        var recovery = request(RETURN_TO_RAW, MANA, MagicAmount.of(100));
+        assertEquals(CANCELLED, l.transact(NODE, 20, 0, recovery, new NexusLedger.Hooks() {
+            @Override public boolean before(PowerResult.Receipt proposed) { return false; }
+            @Override public void after(PowerResult.Receipt receipt) { fail("Cancelled recovery was reported as committed"); }
+        }).status());
+        assertEquals(beforeReturn, l.revision());
+        assertEquals(100, l.quote(NODE, 20, 0).currency(MANA));
         assertTrue(tx(l, 0, RETURN_TO_RAW, 100).succeeded()); assertEquals(MagicAmount.of(20), l.quote(NODE, 20, 0).raw());
         l.bindCurrencies(Map.of(MANA, MagicAmount.of(500))); assertEquals(MagicAmount.of(10), l.rates().get(MANA));
     }

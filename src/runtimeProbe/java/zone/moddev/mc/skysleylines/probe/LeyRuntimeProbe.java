@@ -1,6 +1,10 @@
 package zone.moddev.mc.skysleylines.probe;
 
 import java.nio.file.*;
+import com.mojang.brigadier.exceptions.CommandSyntaxException;
+import com.mojang.brigadier.arguments.IntegerArgumentType;
+import net.minecraft.commands.Commands;
+import net.minecraft.commands.arguments.ResourceLocationArgument;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import net.minecraft.core.BlockPos;
@@ -15,7 +19,9 @@ import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.event.lifecycle.FMLCommonSetupEvent;
 import net.neoforged.fml.common.Mod;
 import net.neoforged.neoforge.common.NeoForge;
+import net.neoforged.neoforge.event.RegisterCommandsEvent;
 import net.neoforged.neoforge.event.server.ServerStartedEvent;
+import zone.moddev.mc.skysleylines.server.LeyInspection;
 import zone.moddev.mc.skysleylines.api.*;
 
 /** Intentionally separate consumer used only in labelled disposable probe runtimes. */
@@ -28,6 +34,8 @@ public final class LeyRuntimeProbe {
     private static NexusPowerService current;
     public LeyRuntimeProbe(IEventBus bus) {
         bus.addListener((FMLCommonSetupEvent e)->e.enqueueWork(()->{
+            LeyVision.registerStyle(ResourceLocation.parse("leyruntimeprobe:goggles"),
+                    new LeyVisionStyle(LeyVisionStyle.Pattern.CRACKLE, 0xffb54b, 0xff683b, 0.85f, 1.25f));
             LeyLinesApi.paradigms().register(new Paradigm<>(ResourceLocation.parse("leyruntimeprobe:technomancy"), "child-owned-config",
                 List.of(new Paradigm.Currency(AETHER,()->MagicAmount.of(Long.getLong("skysleylines.probeRate",1000))),new Paradigm.Currency(ELECTRIC,()->MagicAmount.of(10000)))));
             LeyLinesApi.paradigms().register(new Paradigm<>(ResourceLocation.parse("leyruntimeprobe:mage"), null,
@@ -43,7 +51,49 @@ public final class LeyRuntimeProbe {
         });
         NeoForge.EVENT_BUS.addListener((NexusTransactionEvent.Post e)->posts++);
         NeoForge.EVENT_BUS.addListener(LeyRuntimeProbe::started);
+        NeoForge.EVENT_BUS.addListener(LeyRuntimeProbe::commands);
     }
+    private static void commands(RegisterCommandsEvent event) {
+        event.getDispatcher().register(Commands.literal("leyprobe").requires(source -> source.hasPermission(2))
+                .then(Commands.literal("recoverypermission").requires(source -> source.hasPermission(4)).executes(c -> {
+                    var source = c.getSource();
+                    var dispatcher = source.getServer().getCommands().getDispatcher();
+                    var command = "skysleylines account recover leyruntimeprobe:aether 1";
+                    try {
+                        dispatcher.execute(command, source.withPermission(2));
+                        throw new IllegalStateException("Permission level 2 reached currency recovery");
+                    } catch (CommandSyntaxException expected) {
+                        dispatcher.execute(command, source);
+                    }
+                    source.sendSystemMessage(net.minecraft.network.chat.Component.literal("LEY_RECOVERY_PERMISSION_PASS"));
+                    return 1;
+                }))
+                .then(Commands.literal("style")
+                        .then(Commands.argument("source", ResourceLocationArgument.id())
+                                .then(Commands.argument("style", ResourceLocationArgument.id())
+                                        .then(Commands.argument("ticks", IntegerArgumentType.integer(1))
+                                                .executes(c -> {
+                                                    LeyVision.grant(c.getSource().getPlayerOrException(),
+                                                            ResourceLocationArgument.getId(c, "source"),
+                                                            IntegerArgumentType.getInteger(c, "ticks"),
+                                                            ResourceLocationArgument.getId(c, "style"));
+                                                    return 1;
+                                                })))))
+                .then(Commands.literal("revoke").then(Commands.argument("source", ResourceLocationArgument.id())
+                        .executes(c -> {
+                            LeyVision.revoke(c.getSource().getPlayerOrException(), ResourceLocationArgument.getId(c, "source"));
+                            return 1;
+                        })))
+                .then(Commands.literal("fund").executes(c -> {
+                    var source = c.getSource();
+                    var pos = BlockPos.containing(source.getPosition());
+                    var power = LeyLinesApi.forLevel(source.getLevel()).power();
+                    var aether = power.convertAt(pos.getX(), pos.getY(), pos.getZ(), AETHER, MagicAmount.of(5), PLANT);
+                    var electric = power.convertAt(pos.getX(), pos.getY(), pos.getZ(), ELECTRIC, MagicAmount.of(2), PLANT);
+                    return aether.succeeded() && electric.succeeded() ? 1 : 0;
+                })));
+    }
+
     private static void require(boolean value, String message) { if (!value) throw new IllegalStateException(message); }
     private static void started(ServerStartedEvent event) {
         if (!Boolean.getBoolean("skysleylines.runtimeProbe")) return;
@@ -97,6 +147,13 @@ public final class LeyRuntimeProbe {
                     require(current.rates().get(AETHER).equals(MagicAmount.of(2000)),"Migration did not install configured rate");
                 }
             }
+            var meter = LeyInspection.snapshot(level, new BlockPos(x, y, z));
+            require(meter.naturalStrength() == strength, "Meter differs from field sampler");
+            var balance = current.quoteAt(x, y, z).orElseThrow().account();
+            require(meter.reserve().raw().equals(balance.raw().toString())
+                    && meter.reserve().total().equals(balance.total().toString()), "Meter differs from ledger quote");
+            require(meter.reserve().currencies().stream().anyMatch(c -> c.id().equals(AETHER.toString())
+                    && c.balance() == balance.currency(AETHER) && c.installed()), "Meter lost the aether row");
             require(api.field().sample(x,y,z).naturalStrength()==strength,"Consumption changed natural field");
             require(api.power().quoteAt(x,y+128,z).isEmpty(),"Vertical boundary quote exists");
             boolean lineOnlyChecked=false;
@@ -107,12 +164,18 @@ public final class LeyRuntimeProbe {
                 var lc=api.field().sampleColumn(lx,lz);
                 if(lc.active()&&lc.lineStrength()>0&&lc.nexus().isEmpty()) {
                     require(api.power().quoteAt(lx,lc.naturalSurfaceY(),lz).isEmpty(),"Line alone provided shared power");
+                    var lineMeter = LeyInspection.snapshot(level, new BlockPos(lx, lc.naturalSurfaceY(), lz));
+                    require(lineMeter.active() && lineMeter.lineStrength() > 0 && lineMeter.reserve() == null,
+                            "Meter did not distinguish a line-only field");
+                    System.out.println("LEY_PROBE_LINE " + lx + " " + lc.naturalSurfaceY() + " " + lz);
                     lineOnlyChecked=true;
                 }
             }
             require(lineOnlyChecked,"No line-only control was exercised");
             var nether=LeyLinesApi.forLevel(server.getLevel(Level.NETHER));
             require(!nether.field().sample(0,64,0).active(),"Nether active unexpectedly");
+            var netherMeter = LeyInspection.snapshot(server.getLevel(Level.NETHER), new BlockPos(0, 64, 0));
+            require(!netherMeter.active() && netherMeter.reserve() == null, "Inactive dimension produced a meter account");
             boolean rejected=CompletableFuture.supplyAsync(()->{
                 try {api.power().quoteAt(x,y,z);return false;}catch(IllegalStateException expected){return true;}
             }).join();

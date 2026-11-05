@@ -1,0 +1,13 @@
+modLoader="javafml"
+loaderVersion="[3,)"
+license="LGPL-2.1"
+[[mods]]
+modId="leyworldgenprobe"
+version="1"
+displayName="Disposable optional Ley Lines worldgen probe"
+[[dependencies.leyworldgenprobe]]
+modId="skysleylines"
+type="optional"
+versionRange="[0.5.4.121012]"
+ordering="AFTER"
+side="BOTH"

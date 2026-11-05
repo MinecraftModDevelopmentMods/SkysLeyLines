@@ -1,26 +1,23 @@
 # Sky's Ley Lines
 
-A small magical foundation for Minecraft 1.21.1 / NeoForge 21.1.247, by SkyBlade1978.
+I wanted magic mods to be able to share the same map. Sky’s Ley Lines gives the Overworld a network of ley lines and nexuses based on the world seed. Where the lines cross, a nexus holds a pool of magic. Other mods and modpacks can draw on that pool and decide what to do with it.
 
-Ley lines and nexuses are calculated rather than built out of world blocks. Other mods register paradigms and energy currencies, use the same natural magical landscape, and share persistent nexus energy accounts. This initial alpha enables the Overworld only.
+## Try it in a world
 
-The only gameplay item is a pair of dowsing rods: combine two copper ingots and two sticks in any crafting grid. Equip the pair in either hand with the other hand empty: one rod appears in each hand, turns towards a nearby ley line, and smoothly crosses with its partner inside a nexus field. On a line the rods follow its direction; without a signal they settle straight ahead. This works automatically, including in third-person view and for left-handed players. Holding another tool uses a single rod in the available hand. Right-click still gives a direction and rough strength reading. The rods neither consume power nor reveal exact coordinates. They appear in Tools & Utilities in Creative.
+Craft a pair of dowsing rods with two copper ingots and two sticks. Hold the pair with your other hand empty and the rods will turn towards a nearby line. They cross when you reach a nexus field. Right-click for a rough bearing and strength reading.
 
-Run `/skysleylines locate nexus` as an operator to find the closest Overworld nexus within up to 4,096 blocks. The result shows its coordinates, horizontal distance, and strength. Click the coordinates in chat to copy them. The reported Y is the natural ground height, which can be below water. Use `/skysleylines vision on` as you approach the site to see the crossing. The existing `/skysleylines nearest` command works the same way.
+If you’re an operator, run `/skysleylines locate nexus` and click the coordinates to copy them. Switch on Ley Vision with `/skysleylines vision on`. River is the default, with Crackle, Sparkles and Glow for a quieter view. Pick up a Ley Meter from **Operator Utilities** and right-click a block to see the local field and any nexus account you can reach from there.
 
-Operators can also use `/skysleylines sample [x y z]`, `/skysleylines profile`, `/skysleylines account`, and `/skysleylines rates` for precise diagnostics. These commands do not consume power or load chunks.
+Open **Mods → Sky’s Ley Lines → Config** to set up new-world defaults. In a local single-player world you can also choose the default vision style and adjust how long a nexus takes to refill. The [operator guide](docs/SERVER_GUIDE.md) covers commands and dedicated servers.
 
-Use `/skysleylines vision` to toggle ley vision for yourself, or add `on` or `off` to set it directly. This requires operator permission level 2. In the Overworld, nearby ley lines appear as flowing cyan rivers with branching lightning. Violet plumes and orbiting rings mark nexuses. Fly above the terrain to survey routes and crossings before placing spawn points. Vision follows the terrain and water surface in loaded chunks and fades into the distance.
+## Build on it
 
-Default settings aim for strategic nexus sites roughly a kilometre or two apart. Strength follows natural terrain, falling to half at 64 blocks above/below it and zero at 128 blocks. Raw magic can be converted into child-registered currencies only in a nexus field. Conversion preserves one shared capacity; spending currency frees space for raw recharge. A fully drained nexus recovers over 24,000 server ticks, including while its chunks are unloaded, but not while the server is offline.
+A nexus has one shared reserve. Mods can register their own currencies, convert raw magic into them, and spend those balances on their own effects. Pack makers can do the same with optional KubeJS scripts. Start with the [Java quick start](docs/INTEGRATION.md) or the [pack maker guide](docs/MODPACKS.md).
 
-See [the API](docs/API.md), [configuration and save compatibility](docs/CONFIGURATION.md), and [development and validation](docs/DEVELOPMENT.md).
+The [documentation index](docs/README.md) is also in the mod JAR at `META-INF/skysleylines/docs/README.md`.
 
-For Eclipse, follow [the Eclipse setup guide](ECLIPSE.md). Import the inner `SkysLeyLines` folder as an existing Gradle project, refresh Gradle, and launch through `runClient` or `runServer`.
+## Install
 
-Windows client launches in this project use a guarded GLFW runtime to prevent a native crash when attached input queues expose another Minecraft process's window. See [GLFW.md](GLFW.md) for its source, validation and standalone-launcher setup.
+This beta is for **Minecraft 1.21.1, NeoForge 21.1.247 or later in the 21.1 line, and Java 21**. Use the same build on the server and clients. See the [changelog](CHANGELOG.md) for what’s changed since the alpha.
 
-This mod does not require OreSpawn. OreSpawn integration and actual magical ore rules are future work. It adds no blocks, worldgen features, spells, player mana pools, claim system, or portals.
-
-Local development candidate only. Automated verification and user gameplay acceptance are separate.
-
+If you’re working on the source, use the [Eclipse setup guide](ECLIPSE.md). The Windows development launcher uses a [guarded GLFW runtime](GLFW.md).

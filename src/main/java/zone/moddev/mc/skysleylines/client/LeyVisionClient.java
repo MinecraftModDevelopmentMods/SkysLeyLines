@@ -54,7 +54,7 @@ public final class LeyVisionClient {
         for (var crossing : current.crossings()) {
             Vec3 centre = surface(level, crossing.x(), crossing.z());
             if (centre != null) {
-                AABB bounds = new AABB(centre.add(-18, -1, -18), centre.add(18, 42, 18));
+                AABB bounds = new AABB(centre.add(-22, -1, -22), centre.add(22, 62, 22));
                 newPlumes.add(new Plume(centre, crossing.strength(), bounds));
             }
         }
@@ -76,7 +76,7 @@ public final class LeyVisionClient {
             if (from != null && to != null && end - at > 0.001) {
                 double startFade = Math.clamp(Math.min(at, length - at) / 12, 0, 1);
                 double endFade = Math.clamp(Math.min(end, length - end) / 12, 0, 1);
-                AABB bounds = new AABB(from, to).inflate(width + 2, 22, width + 2);
+                AABB bounds = new AABB(from, to).inflate(width * 1.5 + 2, 22, width * 1.5 + 2);
                 result.add(new Span(from, to, offset + at, -uz, ux, width, reach.strength(), startFade, endFade, bounds));
             }
             from = to;
@@ -92,7 +92,7 @@ public final class LeyVisionClient {
         if (chunk == null) return null;
         // WORLD_SURFACE is sent to clients and puts the river above water and terrain.
         int y = chunk.getHeight(Heightmap.Types.WORLD_SURFACE, bx, bz);
-        return y < level.getMinBuildHeight() ? null : new Vec3(x, y + 2.2, z);
+        return y < level.getMinBuildHeight() ? null : new Vec3(x, y + 1.05, z);
     }
 
     @SubscribeEvent
@@ -101,7 +101,7 @@ public final class LeyVisionClient {
         ClientLevel level = Minecraft.getInstance().level;
         if (level == null || VisionSignals.read(level) != patch) return;
         double time = level.getGameTime() + event.getPartialTick().getGameTimeDeltaPartialTick(false);
-        LeyVisionRenderer.draw(event, spans, plumes, time);
+        LeyVisionRenderer.draw(event, spans, plumes, time, VisionSignals.style());
     }
 
     @SubscribeEvent

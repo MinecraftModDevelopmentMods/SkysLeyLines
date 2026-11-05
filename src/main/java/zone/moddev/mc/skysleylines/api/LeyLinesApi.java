@@ -1,5 +1,7 @@
 package zone.moddev.mc.skysleylines.api;
 
+import java.util.Map;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import zone.moddev.mc.skysleylines.server.LeyServerContext;
 
@@ -14,4 +16,9 @@ public final class LeyLinesApi {
     public static ParadigmRegistry paradigms() { return PARADIGMS; }
 
     public static Context forLevel(ServerLevel level) { return LeyServerContext.forLevel(level); }
+
+    /** Saved currencies, including inactive entries. Read on the server thread. */
+    public static Map<ResourceLocation, CurrencyInfo> currencyInfo(ServerLevel level) {
+        return LeyServerContext.currencyInfo(level);
+    }
 }

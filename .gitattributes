@@ -5,4 +5,4 @@
 
 # Gradle packages these files verbatim. Keep their bytes stable across checkouts.
 docs/*.md -text
-src/main/resources/assets/** -text
+src/main/resources/assets/** -text whitespace=trailing-space,space-before-tab,cr-at-eol

@@ -2,6 +2,7 @@ package zone.moddev.mc.skysleylines.api;
 
 import java.util.*;
 import net.minecraft.resources.ResourceLocation;
+import zone.moddev.mc.skysleylines.core.LeySaveLimits;
 
 /** Loading-time catalogue. Register in common setup's enqueueWork; frozen at load complete. */
 public final class ParadigmRegistry {
@@ -13,6 +14,7 @@ public final class ParadigmRegistry {
         if (paradigms.containsKey(paradigm.id())) throw new IllegalArgumentException("Duplicate paradigm: " + paradigm.id());
         Set<ResourceLocation> added = new HashSet<>();
         for (var currency : paradigm.currencies()) {
+            LeySaveLimits.checkCurrencyId(currency.id());
             if (currencies.contains(currency.id()) || !added.add(currency.id())) throw new IllegalArgumentException("Duplicate currency: " + currency.id());
         }
         paradigms.put(paradigm.id(), paradigm); currencies.addAll(added);
@@ -24,8 +26,8 @@ public final class ParadigmRegistry {
         if (!frozen) throw new IllegalStateException("Paradigm catalogue is not frozen");
         Map<ResourceLocation, MagicAmount> rates = new TreeMap<>();
         for (var paradigm : paradigms.values()) for (var currency : paradigm.currencies()) {
-            var rate = Objects.requireNonNull(currency.unitsPerRaw().get(), "Null currency rate");
-            if (rate.isZero()) throw new IllegalArgumentException("Currency rate must be positive: " + currency.id());
+            var rate = currency.unitsPerRaw().get();
+            LeySaveLimits.checkRate(currency.id(), rate);
             rates.put(currency.id(), rate);
         }
         return Collections.unmodifiableMap(rates);
