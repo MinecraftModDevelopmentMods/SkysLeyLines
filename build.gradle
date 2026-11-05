@@ -292,7 +292,58 @@ tasks.register('verifyArtifacts') {
     }
 }
 tasks.named('check') { dependsOn tasks.named('verifyArtifacts') }
+
+def preparedReleaseDir = providers.gradleProperty('preparedReleaseDir')
+def mavenUploadUrl = providers.environmentVariable('MAVEN_UPLOAD_URL')
 publishing {
-    publications { mavenJava(MavenPublication) { from components.java } }
-    repositories { maven { url = layout.projectDirectory.dir('repo') } }
+    publications {
+        mavenJava(MavenPublication) {
+            artifactId = 'SkysLeyLines'
+            if (preparedReleaseDir.isPresent()) {
+                def directory = file(preparedReleaseDir.get())
+                def jarName = "${artifactId}-${project.version}"
+                artifact new File(directory, "${jarName}.jar")
+                artifact(new File(directory, "${jarName}-sources.jar")) { classifier = 'sources' }
+                artifact(new File(directory, "${jarName}-javadoc.jar")) { classifier = 'javadoc' }
+            } else {
+                from components.java
+            }
+            pom {
+                name = mod_name
+                description = 'A seed-based magical field and shared nexus power library for NeoForge.'
+                url = 'https://github.com/MinecraftModDevelopmentMods/SkysLeyLines'
+                licenses {
+                    license {
+                        name = 'GNU Lesser General Public License, Version 2.1'
+                        url = 'https://www.gnu.org/licenses/old-licenses/lgpl-2.1.txt'
+                    }
+                }
+            }
+        }
+    }
+    repositories {
+        maven {
+            url = layout.projectDirectory.dir('repo')
+        }
+        if (mavenUploadUrl.isPresent()) {
+            maven {
+                name = 'release'
+                url = uri(mavenUploadUrl.get())
+                credentials {
+                    username = providers.environmentVariable('MAVEN_UPLOAD_USERNAME').orNull
+                    password = providers.environmentVariable('MAVEN_UPLOAD_PASSWORD').orNull
+                }
+            }
+        }
+    }
+}
+
+tasks.withType(PublishToMavenRepository).configureEach {
+    if (name == 'publishMavenJavaPublicationToReleaseRepository') {
+        doFirst {
+            if (!preparedReleaseDir.isPresent() || repository.url.scheme != 'https') {
+                throw new GradleException('MMD publication requires a prepared CI bundle and an HTTPS Maven repository')
+            }
+        }
+    }
 }
