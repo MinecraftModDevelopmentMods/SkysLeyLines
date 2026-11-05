@@ -25,16 +25,20 @@ public final class NexusLedger {
         default void failure(RuntimeException failure) {}
     }
     public static final Hooks NO_HOOKS = new Hooks() {};
-    private final int rechargeTicks;
+    private int rechargeTicks;
     private Map<NexusId, Balance> balances = new TreeMap<>();
     private Map<ResourceLocation, MagicAmount> rates = new TreeMap<>();
     private Set<ResourceLocation> active = Set.of();
     private long revision;
     private boolean transaction;
     public NexusLedger(int rechargeTicks) {
-        if (rechargeTicks <= 0 || rechargeTicks > 1_728_000) throw new IllegalArgumentException("Invalid recovery time");
+        checkRechargeTicks(rechargeTicks);
         this.rechargeTicks = rechargeTicks;
     }
+    private static void checkRechargeTicks(int ticks) {
+        if (ticks <= 0 || ticks > 1_728_000) throw new IllegalArgumentException("Invalid recovery time");
+    }
+    public int rechargeTicks() { return rechargeTicks; }
     public Map<NexusId, Balance> entries() { return Collections.unmodifiableMap(new TreeMap<>(balances)); }
     public Map<ResourceLocation, MagicAmount> rates() { return Collections.unmodifiableMap(new TreeMap<>(rates)); }
     public Set<ResourceLocation> activeCurrencies() { return active; }
@@ -44,12 +48,14 @@ public final class NexusLedger {
         revision = value;
     }
     public void restoreRate(ResourceLocation id, MagicAmount rate) {
-        if (transaction || rate.isZero() || rates.putIfAbsent(id, rate) != null) throw new IllegalArgumentException("Invalid/duplicate currency rate");
+        if (transaction) throw new IllegalStateException("Nested ledger mutation");
+        LeySaveLimits.checkRate(id, rate);
+        if (rates.putIfAbsent(id, rate) != null) throw new IllegalArgumentException("Duplicate currency rate: " + id);
     }
     /** New currencies start at zero; known currencies keep their saved world rates. */
     public boolean bindCurrencies(Map<ResourceLocation, MagicAmount> configured) {
         if (transaction) throw new IllegalStateException("Nested ledger mutation");
-        configured.forEach((id, rate) -> { Objects.requireNonNull(id); if (rate == null || rate.isZero()) throw new IllegalArgumentException("Invalid currency rate"); });
+        configured.forEach(LeySaveLimits::checkRate);
         boolean added = configured.keySet().stream().anyMatch(id -> !rates.containsKey(id));
         long next = added ? Math.incrementExact(revision) : revision;
         configured.forEach(rates::putIfAbsent);
@@ -58,6 +64,7 @@ public final class NexusLedger {
     }
     public void restore(NexusId id, Balance balance) {
         if (transaction) throw new IllegalStateException("Nested ledger mutation");
+        LeySaveLimits.checkAmount(balance.raw, "Raw balance for " + id);
         validate(balance, rates);
         if (balances.putIfAbsent(id, balance) != null) throw new IllegalArgumentException("Duplicate nexus balance");
     }
@@ -118,6 +125,7 @@ public final class NexusLedger {
                     }
                 }
                 Balance after = new Balance(capacity, raw, currencies, before.tick);
+                LeySaveLimits.checkAmount(after.raw, "Raw balance for " + id);
                 validate(after, rates);
                 var receipt = new PowerResult.Receipt(Math.incrementExact(revision), id, request, snapshot(before, rates), snapshot(after, rates));
                 try { if (!hooks.before(receipt)) return PowerResult.failed(CANCELLED); }
@@ -136,10 +144,34 @@ public final class NexusLedger {
         if (transaction) throw new IllegalStateException("Nested ledger mutation");
         balances.entrySet().removeIf(e -> e.getValue().currencies.isEmpty() && projected(e.getKey(), e.getValue().capacity, now).raw.equals(MagicAmount.of(e.getValue().capacity)));
     }
+    /** Settle at the current rate and commit the new interval only after a successful backup. */
+    public boolean changeRechargeTicks(int ticks, long now, Runnable backup) {
+        if (transaction) throw new IllegalStateException("Nested ledger mutation");
+        checkRechargeTicks(ticks);
+        if (ticks == rechargeTicks) return false;
+        transaction = true;
+        try {
+            long nextRevision = Math.incrementExact(revision);
+            var next = new TreeMap<NexusId, Balance>();
+            balances.forEach((id, stored) -> {
+                Balance settled = projected(id, stored.capacity, now);
+                LeySaveLimits.checkAmount(settled.raw, "Raw balance for " + id);
+                next.put(id, settled);
+            });
+            backup.run();
+            balances = next;
+            rechargeTicks = ticks;
+            revision = nextRevision;
+            return true;
+        } finally {
+            transaction = false;
+        }
+    }
     public RateMigration previewMigration(Map<ResourceLocation, MagicAmount> configured, long now) {
         var target = new TreeMap<>(rates);
         configured.forEach((id, rate) -> {
-            if (!active.contains(id) || rate == null || rate.isZero()) throw new IllegalArgumentException("Invalid migration currency");
+            if (!active.contains(id)) throw new IllegalArgumentException("Inactive migration currency: " + id);
+            LeySaveLimits.checkRate(id, rate);
             target.put(id, rate);
         });
         var snapshots = new TreeMap<NexusId, AccountSnapshot>();
@@ -159,6 +191,7 @@ public final class NexusLedger {
                 if (units > 0) currencies.put(currency.getKey(), units);
             }
             Balance next = new Balance(old.capacity, raw, currencies, old.tick);
+            LeySaveLimits.checkAmount(next.raw, "Migrated raw balance for " + entry.getKey());
             validate(next, target);
             if (!snapshot(old, rates).total().equals(snapshot(next, target).total())) throw new IllegalStateException("Migration changed energy");
             result.put(entry.getKey(), next);
@@ -171,7 +204,7 @@ public final class NexusLedger {
         transaction = true;
         try {
             if (plan.revision() != revision || !plan.oldRates().equals(rates) || !plan.newRates().keySet().equals(rates.keySet())) return false;
-            plan.newRates().values().forEach(rate -> { if (rate.isZero()) throw new IllegalArgumentException("Zero migration rate"); });
+            plan.newRates().forEach(LeySaveLimits::checkRate);
             var next = migrated(plan.newRates(), now);
             long nextRevision = Math.incrementExact(revision);
             var accounts = new TreeMap<NexusId, AccountSnapshot>();

@@ -43,7 +43,7 @@ public final class LeyServerContext {
                 Nexus nexus = sample.nexus().orElseThrow();
                 int capacity = nexus.capacity(data.profile());
                 var balance = data.ledger().quote(nexus.id(), capacity, server.overworld().getGameTime());
-                return Optional.of(new NexusSnapshot(nexus, balance, data.profile().rechargeTicks(), sample.naturalStrength()));
+                return Optional.of(new NexusSnapshot(nexus, balance, data.ledger().rechargeTicks(), sample.naturalStrength()));
             }
             @Override public Map<ResourceLocation, MagicAmount> rates() { serverThread(server); return data.ledger().rates(); }
             @Override public PowerResult transact(PowerRequest request) {
@@ -75,5 +75,12 @@ public final class LeyServerContext {
         serverThread(server);
         forLevel(server.overworld());
         return WORLDS.get(server);
+    }
+    public static Map<ResourceLocation, CurrencyInfo> currencyInfo(ServerLevel level) {
+        var ledger = world(level.getServer()).ledger();
+        var active = ledger.activeCurrencies();
+        var info = new TreeMap<ResourceLocation, CurrencyInfo>();
+        ledger.rates().forEach((id, rate) -> info.put(id, new CurrencyInfo(rate, active.contains(id))));
+        return Collections.unmodifiableMap(info);
     }
 }

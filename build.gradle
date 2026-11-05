@@ -24,7 +24,13 @@ java {
     withSourcesJar()
     withJavadocJar()
 }
-repositories { mavenCentral() }
+repositories {
+    mavenCentral()
+    maven {
+        url = 'https://maven.latvian.dev/releases'
+        content { includeGroup 'dev.latvian.mods' }
+    }
+}
 def guardedGlfw = layout.projectDirectory.file('runtime/windows-x86_64/glfw.dll')
 def windowsX64 = System.getProperty('os.name').startsWith('Windows') &&
         System.getProperty('os.arch') in ['amd64', 'x86_64']
@@ -40,6 +46,7 @@ tasks.register('verifyGlfwRuntime') {
 }
 dependencies {
     implementation "net.neoforged:neoforge:${neo_version}"
+    compileOnly "dev.latvian.mods:kubejs-neoforge:${kubejs_version}"
     testImplementation platform('org.junit:junit-bom:5.10.2')
     testImplementation 'org.junit.jupiter:junit-jupiter'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
@@ -49,6 +56,9 @@ sourceSets {
     runtimeProbe {
         compileClasspath += sourceSets.main.output + sourceSets.main.compileClasspath
         runtimeClasspath += output + compileClasspath
+    }
+    worldgenProbe {
+        compileClasspath += sourceSets.main.output + sourceSets.main.compileClasspath
     }
 }
 runs {
@@ -86,17 +96,24 @@ tasks.withType(AbstractArchiveTask).configureEach {
     preserveFileTimestamps = false
     reproducibleFileOrder = true
 }
+def documentationRoot = 'META-INF/skysleylines/docs'
+def documentationIndex = documentationRoot + '/README.md'
+def publicDocumentation = fileTree('docs') {
+    include '**/*.md'
+    exclude 'DEVELOPMENT.md'
+}
 tasks.named('processResources', ProcessResources) {
     def properties = [mod_id: mod_id, mod_name: mod_name, mod_version: mod_version, mod_license: mod_license]
     inputs.properties properties
     filesMatching('META-INF/neoforge.mods.toml') { expand properties }
-    from('docs') { into 'META-INF/skysleylines/docs' }
+    from(publicDocumentation) { into documentationRoot }
     from('LICENSE')
 }
 tasks.named('jar', Jar) {
     manifest.attributes('Specification-Title': "Sky's Ley Lines", 'Specification-Version': '2',
             'Implementation-Version': project.version, 'SkysLeyLines-API-Version': '2',
-            'SkysLeyLines-Layout-Version': '1', 'SkysLeyLines-Save-Schema': '2')
+            'SkysLeyLines-Layout-Version': '1', 'SkysLeyLines-Save-Schema': '3',
+            'SkysLeyLines-Documentation': documentationIndex)
 }
 tasks.named('javadoc', Javadoc) {
     options.encoding = 'UTF-8'
@@ -107,6 +124,12 @@ tasks.register('runtimeProbeJar', Jar) {
     dependsOn tasks.named('runtimeProbeClasses')
     from sourceSets.runtimeProbe.output
     archiveClassifier = 'runtime-probe'
+    destinationDirectory = layout.buildDirectory.dir('validation-tools')
+}
+tasks.register('worldgenProbeJar', Jar) {
+    dependsOn tasks.named('worldgenProbeClasses')
+    from sourceSets.worldgenProbe.output
+    archiveClassifier = 'worldgen-probe'
     destinationDirectory = layout.buildDirectory.dir('validation-tools')
 }
 // A separate jar gives the probe its own mod root. Combining both source sets
@@ -208,7 +231,7 @@ tasks.register('verifyEclipseProductionClasspath') {
         if (neo.size() != 1 || neo[0].@sourcepath.text().isEmpty()) {
             throw new GradleException('Expected one mapped NeoForge library with attached sources')
         }
-        ['src/test', 'runtimeProbe', 'junit', 'opentest4j', 'src/main/resources'].each {
+        ['src/test', 'runtimeProbe', 'worldgenProbe', 'junit', 'opentest4j', 'src/main/resources'].each {
             if (content.contains(it)) throw new GradleException("Eclipse classpath exposes ${it}")
         }
         if (!content.contains('build/resources/main')) throw new GradleException('Missing processed resources')
@@ -231,7 +254,7 @@ tasks.register('verifyEclipseProductionClasspath') {
 tasks.register('verifyArtifacts') {
     dependsOn tasks.named('jar'), tasks.named('sourcesJar'), tasks.named('javadocJar')
     doLast {
-        def forbidden = ['org/junit/', 'org/mockito/', 'zone/moddev/mc/skysleylines/probe/', 'META-INF/mods.toml']
+        def forbidden = ['org/junit/', 'org/mockito/', 'dev/latvian/', 'zone/moddev/mc/skysleylines/probe/', 'META-INF/mods.toml']
         def jarFile = tasks.named('jar').get().archiveFile.get().asFile
         new java.util.zip.ZipFile(jarFile).withCloseable { zip ->
             def entries = zip.entries().collect { it.name }
@@ -239,6 +262,27 @@ tasks.register('verifyArtifacts') {
             if (!entries.contains('META-INF/neoforge.mods.toml')) throw new GradleException('Missing mod metadata')
             if (new String(zip.getInputStream(zip.getEntry('META-INF/neoforge.mods.toml')).bytes, 'UTF-8').contains('${')) {
                 throw new GradleException('Unexpanded jar metadata')
+            }
+            def docs = publicDocumentation.files.collectEntries { source ->
+                def relative = file('docs').toPath().relativize(source.toPath()).toString().replace('\\', '/')
+                [(documentationRoot + '/' + relative): source]
+            }
+            def bundledDocs = zip.entries().findAll { !it.directory && it.name.startsWith(documentationRoot + '/') }
+            if (!docs.containsKey(documentationIndex) || bundledDocs.collect { it.name }.toSet() != docs.keySet()) {
+                throw new GradleException('Bundled documentation paths differ from the public source tree')
+            }
+            bundledDocs.each { entry ->
+                zip.getInputStream(entry).withCloseable { stream ->
+                    if (!Arrays.equals(stream.bytes, docs[entry.name].bytes)) {
+                        throw new GradleException("Bundled documentation differs from source: ${entry.name}")
+                    }
+                }
+            }
+            def manifest = zip.getInputStream(zip.getEntry('META-INF/MANIFEST.MF')).withCloseable {
+                new java.util.jar.Manifest(it)
+            }
+            if (manifest.mainAttributes.getValue('SkysLeyLines-Documentation') != documentationIndex) {
+                throw new GradleException('The JAR manifest must point to the bundled documentation index')
             }
         }
         def sums = file("${buildDir}/libs/SHA256SUMS")

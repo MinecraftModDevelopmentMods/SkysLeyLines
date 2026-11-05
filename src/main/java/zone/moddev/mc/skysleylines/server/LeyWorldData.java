@@ -21,47 +21,76 @@ import zone.moddev.mc.skysleylines.core.NexusLedger;
 /** World-wide settings and sparse balances live in the Overworld, independent of loaded nexus chunks. */
 public final class LeyWorldData extends SavedData {
     public static final String NAME = "skysleylines";
-    public static final int SCHEMA = 2;
+    private static final int BASE_SCHEMA = 2;
+    public static final int SCHEMA = 3;
     private final LeyProfile profile;
     private final NexusLedger ledger;
     private final LongSupplier clock;
     private Map<ResourceLocation, MagicAmount> configuredRates = Map.of();
     private Path storageDirectory;
+    private boolean hasRechargeHistory;
 
     public LeyWorldData(LeyProfile profile, LongSupplier clock) {
+        this(profile, clock, profile.rechargeTicks(), false);
+    }
+    private LeyWorldData(LeyProfile profile, LongSupplier clock, int effectiveRechargeTicks, boolean hasRechargeHistory) {
         this.profile = profile;
-        this.ledger = new NexusLedger(profile.rechargeTicks());
+        this.ledger = new NexusLedger(effectiveRechargeTicks);
         this.clock = clock;
+        this.hasRechargeHistory = hasRechargeHistory;
     }
     public LeyProfile profile() { return profile; }
     public NexusLedger ledger() { return ledger; }
 
     public static LeyWorldData get(MinecraftServer server) {
         LongSupplier clock = () -> server.overworld().getGameTime();
-        // Vanilla catches SavedData load exceptions and then creates defaults. Preflight OUTSIDE
-        // that catch so an unreadable/newer profile cannot be silently replaced and saved over.
         Path path = server.getWorldPath(LevelResource.ROOT).resolve("data").resolve(NAME + ".dat");
-        if (Files.exists(path)) {
+        int override = LeyConfig.rechargeOverride();
+        var configured = LeyLinesApi.paradigms().configuredRates();
+        LeyWorldData data;
+        boolean existing = !Files.notExists(path);
+        // Publish only after validation, so SavedData cannot replace a failed load with defaults.
+        if (existing) {
             try {
                 CompoundTag file = NbtIo.readCompressed(path, NbtAccounter.unlimitedHeap());
                 if (!file.contains("data", Tag.TAG_COMPOUND)) throw new IllegalStateException("Missing ley data root");
                 CompoundTag saved = file.getCompound("data");
-                load(saved, clock);
+                data = load(saved, clock);
                 if (saved.getInt("schema") == 1) {
-                    Files.copy(path, path.resolveSibling(NAME + "-schema1-" + UUID.randomUUID() + ".dat.bak"));
+                    copyBackup(path, "schema1");
                 }
             } catch (IOException | RuntimeException failure) {
                 throw new IllegalStateException("Cannot safely read " + path + "; existing ley data has not been replaced", failure);
             }
+        } else {
+            data = new LeyWorldData(LeyConfig.defaults(), clock);
+            data.setDirty();
         }
-        LeyWorldData data = server.overworld().getDataStorage().computeIfAbsent(new Factory<>(() -> {
-            LeyWorldData created = new LeyWorldData(LeyConfig.defaults(), clock);
-            created.setDirty();
-            return created;
-        }, (tag, lookup) -> load(tag, clock)), NAME);
         data.storageDirectory = path.getParent();
-        data.configureCurrencies(LeyLinesApi.paradigms().configuredRates());
+        data.applyRechargeOverride(override, () -> {
+            if (existing) {
+                try {
+                    copyBackup(path, "before-recharge");
+                } catch (IOException failure) {
+                    throw new IllegalStateException("Recharge backup failed; ley data has not been replaced", failure);
+                }
+            }
+        });
+        data.configureCurrencies(configured);
+        server.overworld().getDataStorage().set(NAME, data);
         return data;
+    }
+
+    private static void copyBackup(Path path, String reason) throws IOException {
+        Files.copy(path, path.resolveSibling(NAME + "-" + reason + "-" + UUID.randomUUID() + ".dat.bak"));
+    }
+
+    public void applyRechargeOverride(int override, Runnable backup) {
+        int target = override == 0 ? profile.rechargeTicks() : override;
+        if (ledger.changeRechargeTicks(target, Math.max(0, clock.getAsLong()), backup)) {
+            hasRechargeHistory = true;
+            setDirty();
+        }
     }
 
     public void configureCurrencies(Map<ResourceLocation, MagicAmount> rates) {
@@ -99,7 +128,7 @@ public final class LeyWorldData extends SavedData {
         require(tag, "schema", Tag.TAG_INT);
         require(tag, "layoutVersion", Tag.TAG_INT);
         int schema = tag.getInt("schema");
-        if ((schema != 1 && schema != SCHEMA) || tag.getInt("layoutVersion") != LeyProfile.LAYOUT_VERSION) {
+        if (schema < 1 || schema > SCHEMA || tag.getInt("layoutVersion") != LeyProfile.LAYOUT_VERSION) {
             throw new IllegalStateException("Unsupported ley save or layout version; refusing to reset the network");
         }
         require(tag, "dimension", Tag.TAG_STRING);
@@ -107,9 +136,15 @@ public final class LeyWorldData extends SavedData {
         require(tag, "profile", Tag.TAG_COMPOUND);
         CompoundTag p = tag.getCompound("profile");
         for (String key : new String[]{"spacing", "lineWidth", "nexusRadius", "verticalReach", "capacity", "rechargeTicks"}) require(p, key, Tag.TAG_INT);
-        LeyWorldData data = new LeyWorldData(new LeyProfile(p.getInt("spacing"), p.getInt("lineWidth"), p.getInt("nexusRadius"),
-                p.getInt("verticalReach"), p.getInt("capacity"), p.getInt("rechargeTicks")), clock);
-        if (schema == 2) {
+        LeyProfile profile = new LeyProfile(p.getInt("spacing"), p.getInt("lineWidth"), p.getInt("nexusRadius"),
+                p.getInt("verticalReach"), p.getInt("capacity"), p.getInt("rechargeTicks"));
+        int effectiveRechargeTicks = profile.rechargeTicks();
+        if (schema == SCHEMA) {
+            require(tag, "effectiveRechargeTicks", Tag.TAG_INT);
+            effectiveRechargeTicks = tag.getInt("effectiveRechargeTicks");
+        }
+        LeyWorldData data = new LeyWorldData(profile, clock, effectiveRechargeTicks, schema == SCHEMA);
+        if (schema >= BASE_SCHEMA) {
             require(tag, "revision", Tag.TAG_LONG);
             data.ledger.restoreRevision(tag.getLong("revision"));
             for (Tag rateTag : compounds(tag, "rates")) {
@@ -181,7 +216,8 @@ public final class LeyWorldData extends SavedData {
         return encode(tag);
     }
     private CompoundTag encode(CompoundTag tag) {
-        tag.putInt("schema", SCHEMA);
+        tag.putInt("schema", hasRechargeHistory ? SCHEMA : BASE_SCHEMA);
+        if (hasRechargeHistory) tag.putInt("effectiveRechargeTicks", ledger.rechargeTicks());
         tag.putInt("layoutVersion", LeyProfile.LAYOUT_VERSION);
         tag.putString("dimension", "minecraft:overworld");
         CompoundTag p = new CompoundTag();

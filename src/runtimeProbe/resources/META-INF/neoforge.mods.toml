@@ -8,6 +8,6 @@ displayName="Ley Lines disposable runtime consumer"
 [[dependencies.leyruntimeprobe]]
 modId="skysleylines"
 type="required"
-versionRange="[0.2.0.121012]"
+versionRange="[0.5.4.121012]"
 ordering="AFTER"
 side="BOTH"

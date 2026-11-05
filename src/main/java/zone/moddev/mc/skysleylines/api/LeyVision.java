@@ -17,6 +17,20 @@ public final class LeyVision {
         VisionUpdates.grant(player, source, durationTicks);
     }
 
+    /** Register a named style during mod setup, before the registry freezes at load completion. */
+    public static void registerStyle(ResourceLocation id, LeyVisionStyle style) {
+        VisionUpdates.registerStyle(id, style);
+    }
+
+    /**
+     * Grant vision with a registered style ID. The latest active styled source takes precedence.
+     * Renewing an active source keeps its activation order. Expiring or revoking it reveals the
+     * next styled source, or the server default when an unstyled source is still active.
+     */
+    public static void grant(ServerPlayer player, ResourceLocation source, int durationTicks, ResourceLocation styleId) {
+        VisionUpdates.grant(player, source, durationTicks, styleId);
+    }
+
     /** Remove this source's grant on the server thread. */
     public static void revoke(ServerPlayer player, ResourceLocation source) {
         VisionUpdates.revoke(player, source);

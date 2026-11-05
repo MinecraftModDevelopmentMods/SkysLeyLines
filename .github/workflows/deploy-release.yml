@@ -1,0 +1,111 @@
+name: Deploy Sky's Ley Lines beta
+
+on:
+  workflow_dispatch:
+    inputs:
+      ci_run_id:
+        description: Successful CI run ID for the selected MMD branch commit
+        type: string
+        required: true
+      tested_sha256:
+        description: SHA-256 of the playtested ordinary mod JAR
+        type: string
+        required: true
+      confirm_publication:
+        description: Upload the verified JAR to CurseForge as a beta
+        type: boolean
+        default: false
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: skysleylines-curseforge-beta
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Verify the merged build
+    if: github.repository == 'MinecraftModDevelopmentMods/SkysLeyLines' && github.ref == 'refs/heads/master-1.21.1-neo'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      jar: ${{ steps.verify.outputs.jar }}
+      version: ${{ steps.verify.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Check CI provenance
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CI_RUN_ID: ${{ inputs.ci_run_id }}
+        run: |
+          set -euo pipefail
+          [[ "$CI_RUN_ID" =~ ^[0-9]+$ ]]
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$CI_RUN_ID" | jq -e \
+            --arg sha "$GITHUB_SHA" --arg repo "$GITHUB_REPOSITORY" '
+            .path == ".github/workflows/ci.yml" and .event == "push" and
+            .head_repository.full_name == $repo and .head_branch == "master-1.21.1-neo" and
+            .head_sha == $sha and .conclusion == "success"
+          '
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: SkysLeyLines-${{ github.sha }}
+          path: ${{ runner.temp }}/release
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.ci_run_id }}
+      - name: Match the tested JAR and changelog
+        id: verify
+        env:
+          TESTED_SHA256: ${{ inputs.tested_sha256 }}
+        run: |
+          set -euo pipefail
+          version="$(sed -n 's/^mod_version=//p' gradle.properties)"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.121012$ ]]
+          jar="SkysLeyLines-$version.jar"
+          [[ "$TESTED_SHA256" =~ ^[A-Fa-f0-9]{64}$ ]]
+          cmp CHANGELOG.md "$RUNNER_TEMP/release/CHANGELOG.md"
+          cd "$RUNNER_TEMP/release"
+          sha256sum --strict --check SHA256SUMS
+          printf '%s  %s\n' "${TESTED_SHA256,,}" "$jar" | sha256sum --check --strict
+          printf 'jar=%s\nversion=%s\n' "$jar" "$version" >> "$GITHUB_OUTPUT"
+
+  publish:
+    name: Publish CurseForge beta
+    needs: verify
+    if: inputs.confirm_publication
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: release
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: SkysLeyLines-${{ github.sha }}
+          path: ${{ runner.temp }}/release
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.ci_run_id }}
+      - name: Verify the JAR again and upload it
+        env:
+          CURSEFORGE_TOKEN: ${{ secrets.CURSEFORGE_TOKEN }}
+          TESTED_SHA256: ${{ inputs.tested_sha256 }}
+          JAR: ${{ needs.verify.outputs.jar }}
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$CURSEFORGE_TOKEN" ]]; then
+            echo "::error::Configure the CURSEFORGE_TOKEN upload secret for this repository."
+            exit 1
+          fi
+          cd "$RUNNER_TEMP/release"
+          sha256sum --check --strict SHA256SUMS
+          printf '%s  %s\n' "${TESTED_SHA256,,}" "$JAR" | sha256sum --check --strict
+          jq -n --rawfile changelog CHANGELOG.md --arg name "Sky's Ley Lines $VERSION (NeoForge)" \
+            '{displayName: $name, changelog: $changelog, changelogType: "markdown", releaseType: "beta",
+              gameVersionNames: ["1.21.1", "NeoForge", "Java 21", "Client", "Server"]}' > curseforge-metadata.json
+          response="$(curl --silent --show-error --fail-with-body --max-time 180 \
+            -H "X-Api-Token: $CURSEFORGE_TOKEN" -F 'metadata=<curseforge-metadata.json' -F "file=@$JAR" \
+            https://minecraft.curseforge.com/api/projects/1783346/upload-file)"
+          file_id="$(jq -er '.id | numbers' <<< "$response")"
+          printf 'CurseForge accepted beta file %s for project 1783346.\n' "$file_id" | tee -a "$GITHUB_STEP_SUMMARY"

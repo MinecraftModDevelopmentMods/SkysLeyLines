@@ -2,6 +2,7 @@
 build/
 bin/
 run/
+/logs/
 repo/
 .classpath
 .project

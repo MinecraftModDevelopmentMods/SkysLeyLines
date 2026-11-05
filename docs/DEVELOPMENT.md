@@ -16,7 +16,17 @@ Run one Gradle process at a time against the shared cache. Import the inner `Sky
 
 Validation covers deterministic boundaries/order, concurrent samplers, bounded caches/searches, saved profiles, shared currency competition, exact conversions/returns, cancelled/reentrant events, frozen rates, value-preserving migrations, unloaded recovery, fractional recharge, NBT round trips/rejection, resources, exact packaged runtimes, and visual rods feedback. Runtime receipts are separate from user gameplay acceptance. Keep failed receipts and rerun only after fixing their cause or stating the changed validation conditions.
 
-No remote repository, commit, push, tag, or publication is configured by this scaffold.
+## Packaged documentation
+
+Edit the public Markdown guides in `docs/` and link new pages from [the documentation index](README.md). Use relative links between bundled pages so readers can extract the directory and browse it offline. The ordinary JAR packages the guides under `META-INF/skysleylines/docs/` and advertises the index in its manifest. `verifyArtifacts` checks the packaged paths and bytes against the source guides.
+
+This development note is checkout documentation. Keep machine-specific build paths and validation notes here or in the repository rather than in the public bundle.
+
+## Beta releases
+
+CI validates the wrapper and builds the ordinary, sources, and Javadoc JARs on Java 21. It publishes a checksum manifest with the artifacts and the changelog. Download the bundle named for the commit you want to test and use the ordinary JAR for the client and dedicated server checks.
+
+After merge, take the CI run ID from the MMD branch push and verify its ordinary JAR matches the tested SHA-256. Open **Deploy Sky’s Ley Lines beta** on that branch and enter the run ID and tested SHA-256. Leave confirmation off for a dry run. With confirmation on, the workflow uploads the verified ordinary JAR as a beta to CurseForge project 1783346. It uses the `CURSEFORGE_TOKEN` upload secret in the repository or its `release` environment. Check the returned file ID and the public file listing separately.
 
 Research references:
 
