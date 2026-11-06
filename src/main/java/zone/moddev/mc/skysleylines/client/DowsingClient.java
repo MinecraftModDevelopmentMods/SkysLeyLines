@@ -52,6 +52,8 @@ public final class DowsingClient {
                 (mod, parent) -> new ConfigurationScreen(mod, parent, LeyConfigSection::new));
         bus.addListener((ModelEvent.RegisterAdditional event) -> { event.register(ROD); event.register(ICON); });
         bus.addListener(DowsingClient::extensions);
+        bus.addListener((EntityRenderersEvent.RegisterRenderers event) ->
+                event.registerEntityRenderer(SkysLeyLines.ENERGY_ORB.get(), EnergyOrbRenderer::new));
         bus.addListener((EntityRenderersEvent.AddLayers event) -> {
             wideHands = slimHands = null; // Also invalidated on resource/model reload.
             for (var skin : event.getSkins()) {

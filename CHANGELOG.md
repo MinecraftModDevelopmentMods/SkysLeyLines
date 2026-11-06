@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.5.5.121012 beta
+
+I wanted magic mods to be able to share a nexus even when they use completely different kinds of magic. A technomancer can now carry aether and a mage can carry mana. Each mod decides who gets a pool and how big it is, and both can draw from the same nexus.
+
+- Transfers and conversions can happen instantly or over time. Mods can also let players refill from a nearby nexus at a rate they choose.
+- Player energy drops on death by default. Pack makers can change that behavior, tune capacities and rates, and restrict transfers between players.
+- KubeJS can read and change pools, start and cancel jobs, and react when a pool runs empty.
+- Structure mods can ask for all the nexuses in a chunk from a generation worker. Ore placement can reuse the column sampler.
+- Operators can stage named nexuses and their connections for the next world start. A retired pin keeps its converted balances available for recovery at another nexus.
+- Nexus pools now default to 1% of their original size. A 7,000-raw nexus holds 70 raw, enough for 700 units at a rate of 10 units per raw. Change **Nexus Capacity Multiplier** in Server Settings and reopen the world to adjust it. Existing converted energy stays available.
+- The ledger backs itself up before changing the pool multiplier or first adding player-pool or pin data. Multiplier changes use save schema 6. Use the same build on the client and server.
+
+This beta is for Minecraft 1.21.1 on NeoForge 21.1.247 or later in the 21.1 line, with Java 21.
+
 ## 0.5.4.121012 beta
 
 This beta brings together the work since the 0.4.1 alpha. I’ve added a few ways to see what’s going on in your world and given pack makers more control over how the magic works.

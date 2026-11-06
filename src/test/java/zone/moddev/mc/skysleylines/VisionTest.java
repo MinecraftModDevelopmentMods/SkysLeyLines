@@ -109,10 +109,16 @@ class VisionTest {
         var dimension = ResourceLocation.parse("minecraft:overworld");
         var style = new LeyVisionStyle(LeyVisionStyle.Pattern.SPARKLES, 0xffbb88, 0x8877ff, 0.65f, 0.8f);
         var payload = new VisionPayload(dimension, field(LeyProfile.DEFAULT, true).vision(1166, -743), style);
+        var authored = new VisionPayload(dimension, new VisionGeometry(32,
+                java.util.List.of(new VisionGeometry.Reach(-15, -14, -25, -34, 0.8f, -40, 77)),
+                java.util.List.of(new VisionGeometry.Crossing(-15, -14, 0.85f, -40))), style);
         var buffer = new RegistryFriendlyByteBuf(Unpooled.buffer(), RegistryAccess.EMPTY);
         try {
             VisionPayload.CODEC.encode(buffer, payload);
             assertEquals(payload, VisionPayload.CODEC.decode(buffer));
+            assertFalse(buffer.isReadable());
+            VisionPayload.CODEC.encode(buffer, authored);
+            assertEquals(authored, VisionPayload.CODEC.decode(buffer));
             assertFalse(buffer.isReadable());
             buffer.clear();
             buffer.writeResourceLocation(dimension);

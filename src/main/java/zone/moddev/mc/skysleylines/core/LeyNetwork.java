@@ -8,18 +8,37 @@ import zone.moddev.mc.skysleylines.api.*;
 public final class LeyNetwork implements LeyFieldSampler {
     @FunctionalInterface public interface NaturalHeight { OptionalInt at(int x, int z); }
     private record Cell(int x, int z) {}
-    private record Segment(int cellX, int cellZ, double x, double z, double dx, double dz, double intensity) {
+    private record Segment(int cellX, int cellZ, double x, double z, double dx, double dz, double intensity,
+                           double y0, double y1) {
+        Segment(int cellX, int cellZ, double x, double z, double dx, double dz, double intensity) {
+            this(cellX, cellZ, x, z, dx, dz, intensity, Double.NaN, Double.NaN);
+        }
+
+        double fraction(double px, double pz) {
+            return Math.clamp(((px - x) * dx + (pz - z) * dz) / (dx * dx + dz * dz), 0, 1);
+        }
+
+        double height(double fraction) { return y0 + fraction * (y1 - y0); }
         double distance(double px, double pz) {
-            double t = Math.clamp(((px - x) * dx + (pz - z) * dz) / (dx * dx + dz * dz), 0, 1);
+            double t = fraction(px, pz);
             return StrictMath.hypot(px - x - t * dx, pz - z - t * dz);
         }
         LineReading reading(double px, double pz) {
-            double t = Math.clamp(((px - x) * dx + (pz - z) * dz) / (dx * dx + dz * dz), 0, 1);
+            double t = fraction(px, pz);
             double length = StrictMath.hypot(dx, dz);
             return new LineReading(x + t * dx, z + t * dz, distance(px, pz), dx / length, dz / length);
         }
     }
-    private record Tile(List<Segment> lines, List<Nexus> nexuses) {}
+    private record Tile(List<Segment> lines, List<Nexus> nexuses, Map<Long, List<Nexus>> byChunk) {}
+    private record OverlayTile(List<Nexus> nodes, List<Segment> lines) {
+        static final OverlayTile EMPTY = new OverlayTile(List.of(), List.of());
+    }
+    private record Overlay(Map<Long, OverlayTile> tiles, Map<Long, List<Nexus>> byChunk) {
+        static final Overlay EMPTY = new Overlay(Map.of(), Map.of());
+    }
+    private static final int OVERLAY_TILE = 256;
+    public static final int CONNECTOR_REACH = 512;
+    private final Overlay overlay;
     private final long salt;
     private final String dimension;
     private final LeyProfile profile;
@@ -29,11 +48,16 @@ public final class LeyNetwork implements LeyFieldSampler {
     private final Map<Long, OptionalInt> heights = lru(8192);
 
     public LeyNetwork(long seed, String dimension, LeyProfile profile, NaturalHeight height, boolean active) {
+        this(seed, dimension, profile, height, active, List.of());
+    }
+
+    public LeyNetwork(long seed, String dimension, LeyProfile profile, NaturalHeight height, boolean active, List<Nexus> pins) {
         this.salt = mix(seed ^ dimensionHash(dimension) ^ 0x534B59534C455931L);
         this.dimension = dimension;
         this.profile = Objects.requireNonNull(profile);
         this.height = Objects.requireNonNull(height);
         this.active = active;
+        this.overlay = active && !pins.isEmpty() ? buildOverlay(pins) : Overlay.EMPTY;
     }
     private static <K,V> Map<K,V> lru(int limit) {
         return new LinkedHashMap<>(16, 0.75f, true) {
@@ -98,8 +122,159 @@ public final class LeyNetwork implements LeyFieldSampler {
             nodes.add(new Nexus(new NexusId(dimension, a.cellX, a.cellZ, b.cellX, b.cellZ), x, z, strength));
         }
         nodes.sort(Comparator.comparing(Nexus::id));
-        return new Tile(List.copyOf(lines), List.copyOf(nodes));
+        return new Tile(List.copyOf(lines), List.copyOf(nodes), indexChunks(nodes));
     }
+    private static long key(int x, int z) { return ((long) x << 32) | (z & 0xffffffffL); }
+
+    private static Map<Long, List<Nexus>> indexChunks(List<Nexus> nodes) {
+        var chunks = new HashMap<Long, List<Nexus>>();
+        for (var node : nodes) {
+            int x = Math.floorDiv((int) Math.floor(node.x()), 16);
+            int z = Math.floorDiv((int) Math.floor(node.z()), 16);
+            chunks.computeIfAbsent(key(x, z), ignored -> new ArrayList<>()).add(node);
+        }
+        chunks.replaceAll((ignored, values) -> List.copyOf(values));
+        return Map.copyOf(chunks);
+    }
+
+    @Override public List<Nexus> nexusesInChunk(int chunkX, int chunkZ) {
+        if (!active || chunkX < -134217728 || chunkX > 134217727
+                || chunkZ < -134217728 || chunkZ > 134217727) return List.of();
+        int x = chunkX * 16, z = chunkZ * 16, spacing = profile.spacingBlocks();
+        int tx = Math.floorDiv(x, spacing), tz = Math.floorDiv(z, spacing);
+        long key = key(chunkX, chunkZ);
+        List<Nexus> seeded = tile(tx, tz).byChunk.getOrDefault(key, List.of());
+        // A tile's margin can already contain the entire chunk across either boundary.
+        int margin = Math.max(profile.lineWidth(), profile.nexusRadius());
+        if (margin < 15) {
+            int endX = Math.floorDiv(x + 15, spacing), endZ = Math.floorDiv(z + 15, spacing);
+            if (tx != endX || tz != endZ) seeded = mergeSeededChunk(key, tx, tz, endX, endZ, seeded);
+        }
+        if (overlay == Overlay.EMPTY) return seeded;
+        var pinned = overlay.byChunk.get(key);
+        if (pinned == null || seeded.isEmpty()) return pinned == null ? seeded : pinned;
+        var merged = new ArrayList<Nexus>(seeded.size() + pinned.size());
+        merged.addAll(seeded);
+        merged.addAll(pinned);
+        return List.copyOf(merged);
+    }
+
+    private List<Nexus> mergeSeededChunk(long key, int tx, int tz, int endX, int endZ, List<Nexus> seeded) {
+        TreeMap<NexusId, Nexus> merged = null;
+        for (int cx = tx; cx <= endX; cx++) {
+            for (int cz = tz; cz <= endZ; cz++) {
+                if (cx == tx && cz == tz) continue;
+                var adjacent = tile(cx, cz).byChunk.get(key);
+                if (adjacent == null) continue;
+                if (seeded.isEmpty()) {
+                    seeded = adjacent;
+                    continue;
+                }
+                if (merged == null) {
+                    merged = new TreeMap<>();
+                    for (var node : seeded) merged.put(node.id(), node);
+                }
+                for (var node : adjacent) merged.put(node.id(), node);
+            }
+        }
+        return merged == null ? seeded : List.copyOf(merged.values());
+    }
+
+    public record Connection(double x, int y, double z, double strength) {}
+    private record Join(Segment line, LineReading point) {}
+
+    public List<Nexus> overlappingNexuses(Nexus pin) {
+        int radius = 2 * profile.nexusRadius();
+        int x = (int) pin.x(), z = (int) pin.z();
+        return java.util.stream.Stream.concat(searchTiles(x, z, radius).stream().flatMap(tile -> tile.nexuses.stream()).distinct(),
+                        overlayNear(x, z, radius).nodes.stream())
+                .filter(other -> other.distanceSquared(x, z) < (double) radius * radius)
+                .sorted(Comparator.comparing(Nexus::id)).toList();
+    }
+
+    /** Computes joins against the seeded network alone, for preview and restart. */
+    public List<Connection> connections(Nexus pin) {
+        int x = (int) pin.x(), z = (int) pin.z();
+        return searchTiles(x, z, CONNECTOR_REACH).stream().flatMap(tile -> tile.lines.stream()).distinct()
+                .map(line -> new Join(line, line.reading(x, z)))
+                .filter(join -> join.point.distance() >= 0.01 && join.point.distance() <= CONNECTOR_REACH)
+                .sorted(Comparator.comparingDouble((Join join) -> join.point.distance())
+                        .thenComparingInt(join -> join.line.cellX).thenComparingInt(join -> join.line.cellZ))
+                .map(join -> {
+                    var point = join.point;
+                    var surface = naturalHeight((int) Math.floor(point.x()), (int) Math.floor(point.z()));
+                    return surface.isEmpty() ? null : new Connection(point.x(), surface.getAsInt(), point.z(),
+                            Math.min(pin.strength(), join.line.intensity));
+                }).filter(Objects::nonNull).limit(2).toList();
+    }
+
+    private Overlay buildOverlay(List<Nexus> input) {
+        var pins = input.stream().sorted(Comparator.comparing(Nexus::id)).toList();
+        var tiles = new HashMap<Long, OverlayTile>();
+        for (var pin : pins) {
+            int radius = profile.nexusRadius();
+            index(tiles, pin.x() - radius, pin.z() - radius, pin.x() + radius, pin.z() + radius, pin, null);
+            int width = profile.lineWidth();
+            for (var join : connections(pin)) {
+                var line = new Segment(0, 0, pin.x(), pin.z(), join.x - pin.x(), join.z - pin.z(), join.strength,
+                        pin.authoredY().orElseThrow(), join.y);
+                index(tiles, Math.min(pin.x(), join.x) - width, Math.min(pin.z(), join.z) - width,
+                        Math.max(pin.x(), join.x) + width, Math.max(pin.z(), join.z) + width, null, line);
+            }
+        }
+        tiles.replaceAll((ignored, tile) -> new OverlayTile(List.copyOf(tile.nodes), List.copyOf(tile.lines)));
+        return new Overlay(Map.copyOf(tiles), indexChunks(pins));
+    }
+
+    private static void index(Map<Long, OverlayTile> tiles, double minX, double minZ, double maxX, double maxZ,
+                              Nexus node, Segment line) {
+        for (int x = overlayCell(minX); x <= overlayCell(maxX); x++) {
+            for (int z = overlayCell(minZ); z <= overlayCell(maxZ); z++) {
+                var tile = tiles.computeIfAbsent(key(x, z), ignored -> new OverlayTile(new ArrayList<>(), new ArrayList<>()));
+                if (node != null) tile.nodes.add(node); else tile.lines.add(line);
+            }
+        }
+    }
+
+    private static int overlayCell(double coordinate) { return (int) Math.floor(coordinate / OVERLAY_TILE); }
+
+    private OverlayTile overlayAt(int x, int z) {
+        return overlay.tiles.getOrDefault(key(Math.floorDiv(x, OVERLAY_TILE), Math.floorDiv(z, OVERLAY_TILE)), OverlayTile.EMPTY);
+    }
+
+    private List<LeyColumn.Influence> authoredAt(int x, int z) {
+        if (overlay == Overlay.EMPTY) return List.of();
+        var tile = overlayAt(x, z);
+        if (tile == OverlayTile.EMPTY) return List.of();
+        var influences = new ArrayList<LeyColumn.Influence>();
+        for (var node : tile.nodes) {
+            double distance = Math.sqrt(node.distanceSquared(x, z));
+            int radius = profile.nexusRadius();
+            if (distance < radius) influences.add(new LeyColumn.Influence(node.authoredY().orElseThrow(),
+                    node.strength() * (1 - distance / radius), distance, radius, node));
+        }
+        for (var line : tile.lines) {
+            double distance = line.distance(x, z);
+            int width = profile.lineWidth();
+            if (distance < width) influences.add(new LeyColumn.Influence(line.height(line.fraction(x, z)),
+                    line.intensity * 0.5 * (1 - distance / width), distance, width, null));
+        }
+        return influences;
+    }
+
+    private OverlayTile overlayNear(int x, int z, int radius) {
+        if (overlay == Overlay.EMPTY) return OverlayTile.EMPTY;
+        var nodes = new LinkedHashSet<Nexus>();
+        var lines = new LinkedHashSet<Segment>();
+        for (int cx = overlayCell((double) x - radius); cx <= overlayCell((double) x + radius); cx++) {
+            for (int cz = overlayCell((double) z - radius); cz <= overlayCell((double) z + radius); cz++) {
+                var tile = overlay.tiles.get(key(cx, cz));
+                if (tile != null) { nodes.addAll(tile.nodes); lines.addAll(tile.lines); }
+            }
+        }
+        return new OverlayTile(List.copyOf(nodes), List.copyOf(lines));
+    }
+
     private OptionalInt naturalHeight(int x, int z) {
         long key = ((long) x << 32) ^ (z & 0xffffffffL);
         synchronized (heights) {
@@ -132,7 +307,7 @@ public final class LeyNetwork implements LeyFieldSampler {
         OptionalInt surface = naturalHeight(x, z);
         if (surface.isEmpty()) return LeyColumn.inactive();
         return new LeyColumn(true, surface.getAsInt(), profile.verticalReach(), lineStrength, nexusStrength,
-                Optional.ofNullable(closest), distance, nexusDistance);
+                Optional.ofNullable(closest), distance, nexusDistance, authoredAt(x, z));
     }
     private List<Tile> searchTiles(int x, int z, int radius) {
         if (radius <= 0 || radius > Math.min(4096, profile.spacingBlocks() * 2)) throw new IllegalArgumentException("Search radius out of bounds");
@@ -145,13 +320,15 @@ public final class LeyNetwork implements LeyFieldSampler {
     }
     @Override public Optional<Nexus> nearestNexus(int x, int z, int radius) {
         if (!active) return Optional.empty();
-        return searchTiles(x, z, radius).stream().flatMap(t -> t.nexuses.stream()).distinct()
+        return java.util.stream.Stream.concat(searchTiles(x, z, radius).stream().flatMap(t -> t.nexuses.stream()).distinct(),
+                        overlayNear(x, z, radius).nodes.stream())
                 .filter(n -> n.distanceSquared(x, z) <= (double) radius * radius)
                 .min(Comparator.comparingDouble((Nexus n) -> n.distanceSquared(x, z)).thenComparing(Nexus::id));
     }
     @Override public Optional<LineReading> nearestLine(int x, int z, int radius) {
         if (!active) return Optional.empty();
-        return searchTiles(x, z, radius).stream().flatMap(t -> t.lines.stream()).distinct()
+        return java.util.stream.Stream.concat(searchTiles(x, z, radius).stream().flatMap(t -> t.lines.stream()).distinct(),
+                        overlayNear(x, z, radius).lines.stream())
                 .map(l -> l.reading(x, z)).filter(l -> l.distance() <= radius)
                 .min(Comparator.comparingDouble(LineReading::distance).thenComparingDouble(LineReading::x).thenComparingDouble(LineReading::z));
     }
@@ -161,18 +338,21 @@ public final class LeyNetwork implements LeyFieldSampler {
         if (!active) return VisionGeometry.EMPTY;
         int radius = VisionGeometry.RADIUS;
         List<Tile> region = searchTiles(x, z, radius);
-        var reaches = region.stream().flatMap(tile -> tile.lines.stream()).distinct()
+        var nearby = overlayNear(x, z, radius);
+        var reaches = java.util.stream.Stream.concat(region.stream().flatMap(tile -> tile.lines.stream()).distinct(), nearby.lines.stream())
                 .sorted(Comparator.comparingDouble((Segment line) -> line.distance(x, z))
                         .thenComparingInt(Segment::cellX).thenComparingInt(Segment::cellZ))
                 .map(line -> clip(line, x, z, radius)).filter(Objects::nonNull)
                 .limit(VisionGeometry.MAX_REACHES).toList();
-        var crossings = region.stream().flatMap(tile -> tile.nexuses.stream()).distinct()
+        var crossings = java.util.stream.Stream.concat(region.stream().flatMap(tile -> tile.nexuses.stream()).distinct(), nearby.nodes.stream())
                 .filter(node -> node.distanceSquared(x, z) <= radius * radius)
                 .sorted(Comparator.comparingDouble((Nexus node) -> node.distanceSquared(x, z)).thenComparing(Nexus::id))
                 .limit(VisionGeometry.MAX_CROSSINGS)
-                .map(node -> new VisionGeometry.Crossing(node.x(), node.z(), (float) node.strength())).toList();
+                .map(node -> new VisionGeometry.Crossing(node.x(), node.z(), visionStrength(node.strength()), node.authoredY().isPresent() ? node.authoredY().getAsInt() : Double.NaN)).toList();
         return new VisionGeometry(profile.lineWidth(), reaches, crossings);
     }
+
+    private static float visionStrength(double strength) { return Math.max(Float.MIN_VALUE, (float) strength); }
 
     private static VisionGeometry.Reach clip(Segment line, double x, double z, double radius) {
         double length = Math.hypot(line.dx, line.dz);
@@ -184,7 +364,7 @@ public final class LeyNetwork implements LeyFieldSampler {
         double first = Math.max(0, along - half), last = Math.min(length, along + half);
         if (last - first < 0.01) return null;
         return new VisionGeometry.Reach(line.x + first * ux, line.z + first * uz,
-                line.x + last * ux, line.z + last * uz, (float) line.intensity);
+                line.x + last * ux, line.z + last * uz, visionStrength(line.intensity), line.height(first / length), line.height(last / length));
     }
     public int cachedTileCount() { synchronized (tiles) { return tiles.size(); } }
     public int cachedHeightCount() { synchronized (heights) { return heights.size(); } }

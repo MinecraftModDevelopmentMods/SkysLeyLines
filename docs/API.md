@@ -51,13 +51,13 @@ var returned = power.returnToRawAt(x, y, z, AETHER, 1000, plant);
 
 Every paradigm, player, and machine shares one account per nexus. Consumers may use currencies they understand from any paradigm. Raw magic is a conversion reserve, not a directly spendable currency. There are no per-player wallets or per-currency capacities.
 
-`raw + sum(currency units / unitsPerRaw)` is the total charge. It cannot exceed the strength-dependent nexus capacity. Conversion and return preserve this total; spending reduces it. Recovery adds raw into the remaining space at `capacity / rechargeTicks` per Overworld game tick. It works while chunks are unloaded, without wall-clock/offline recovery or a per-node tick loop. Elapsed recovery is settled before a transaction, preventing retroactive recovery into space that spending just freed.
+`raw + sum(currency units / unitsPerRaw)` is the total charge. Conversion and return preserve this total; spending reduces it. A capacity reduction can leave retained energy above the new limit. Such accounts can still convert, spend, and return energy. They cannot recharge or accept deposits until there is room. Recovery adds raw into the remaining space at `capacity / rechargeTicks` per Overworld game tick. It works while chunks are unloaded, without wall-clock/offline recovery or a per-node tick loop. Elapsed recovery is settled before a transaction, preventing retroactive recovery into space that spending just freed.
 
 `MagicAmount` is an exact nonnegative rational with `of(long)` and `fraction(long,long)` helpers. Rates must be positive. Currency balances are whole nonnegative signed-long units. Currency IDs and each reduced rate or saved raw component must fit in a 65,535-byte NBT string. Conversion must produce whole currency units. A fractional output returns `NON_INTEGRAL_OUTPUT`, and a result that exceeds a storage limit returns `OVERFLOW`. Both leave balances intact. Returning a currency unit may restore a fractional raw amount exactly.
 
 `quoteAt` returns an immutable nexus/account snapshot or empty outside a usable nexus field. `account.raw()`, `account.total()`, and `account.currency(id)` expose exact raw, total raw-equivalent, and currency balances. Missing currency entries mean zero. `rates()` gives the saved effective world rates, including retained inactive currencies. Quotes are projections, not reservations: they create no account, emit no event, and never dirty data.
 
-`LeyLinesApi.currencyInfo(level)` returns an immutable map of saved rates and active flags on the server thread. `NexusSnapshot.rechargeTicks()` reports the effective refill interval, including a server override. `Context.profile().rechargeTicks()` is the base interval saved when the world first initialized.
+`LeyLinesApi.currencyInfo(level)` returns an immutable map of saved rates and active flags on the server thread. `NexusSnapshot.rechargeTicks()` reports the effective refill interval, including a server override. `NexusSnapshot.capacity()` and `AccountSnapshot.capacity()` report the effective limit with the server's capacity multiplier. `Context.profile()` contains the original world settings, and `Nexus.capacity(profile)` calculates the base capacity from them.
 
 Transactions select the nearest eligible nexus, with canonical identity breaking exact-distance ties. They never split a request or fall through to another nexus when funds are insufficient. Lines alone cannot supply power; horizontal and vertical boundaries apply. Untouched nodes start fully raw.
 
@@ -104,6 +104,8 @@ Reuse a column outside candidate-height loops. `naturalStrengthAt` is allocation
 
 For optional integration, check `ModList.get().isLoaded("skysleylines")` before loading a dedicated integration class with API references. Compile production integrations against a matching released artifact and declare a compatible optional dependency. Acquire the sampler during `LevelEvent.Load`; `ServerStartingEvent` runs after spawn preparation on this target. If the optional mod is absent, use the consumer’s ordinary generation rule. The disposable worldgen probe exercises this pattern independently of OreSpawn.
 
+Use `nexusesInChunk(chunkX, chunkZ)` for every centre owned by a chunk, or `LeyLinesApi.worldgenSampler(randomState)` from an actual structure context. See [Worldgen and nexus pins](WORLDGEN_AND_PINS.md) for optional loading, structure placement, and authored anchors.
+
 ## Ley vision grants
 
 Since Sky's Ley Lines 0.4, spells, potions, or equipment can grant a player the same local view as the operator command. Call on the server thread with the connected player's `ServerPlayer`.
@@ -136,3 +138,7 @@ Use a distinct namespaced source for each effect that should expire independentl
 The server sends nearby clipped segments and crossings only to the viewer. The client uses terrain already loaded there to place the effect. The display follows the planar field, while exact vertical strength and nexus eligibility come from `LeyFieldSampler`. The visual width, water surface height, and plumes are presentation choices.
 
 [Java integration quick start](INTEGRATION.md) · [Operator commands](SERVER_GUIDE.md) · [KubeJS bindings](MODPACKS.md)
+
+## Player power
+
+From 0.5.5, use `LeyLinesApi.playerPower(server)` for converted player pools and timed operations. See [Player energy pools](PLAYER_ENERGY.md) for the service, timing, transaction events, and policy overrides.

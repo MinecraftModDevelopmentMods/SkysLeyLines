@@ -2,6 +2,8 @@
 
 For NeoForge 1.21.1, ship `config/skysleylines-common.toml` for new-world layout, capacity, and base recharge. Ship `config/skysleylines-server.toml` for the default vision style and optional recharge override. A server operator can place a copy in `<world>/serverconfig/` to set those two values for one world. The Ley Meter and `/skysleylines profile` show the applied settings. See [configuration and save compatibility](CONFIGURATION.md).
 
+From 0.5.5 you can configure player pools and react to balance and job events. See the [player energy guide](PLAYER_ENERGY.md) for examples and policy files.
+
 ## KubeJS
 
 The optional scripting bridge was introduced in Sky’s Ley Lines 0.5.1. Install the matching [KubeJS build 381](https://www.curseforge.com/minecraft/mc-mods/kubejs/files/9396059/additional-files) stack for Minecraft 1.21.1. Put these scripts on the server, or in the instance for single-player packs.

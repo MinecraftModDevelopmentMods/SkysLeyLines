@@ -112,7 +112,7 @@ tasks.named('processResources', ProcessResources) {
 tasks.named('jar', Jar) {
     manifest.attributes('Specification-Title': "Sky's Ley Lines", 'Specification-Version': '2',
             'Implementation-Version': project.version, 'SkysLeyLines-API-Version': '2',
-            'SkysLeyLines-Layout-Version': '1', 'SkysLeyLines-Save-Schema': '3',
+            'SkysLeyLines-Layout-Version': '1', 'SkysLeyLines-Save-Schema': '5',
             'SkysLeyLines-Documentation': documentationIndex)
 }
 tasks.named('javadoc', Javadoc) {

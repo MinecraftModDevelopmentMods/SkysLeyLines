@@ -22,22 +22,29 @@ import zone.moddev.mc.skysleylines.core.NexusLedger;
 public final class LeyWorldData extends SavedData {
     public static final String NAME = "skysleylines";
     private static final int BASE_SCHEMA = 2;
-    public static final int SCHEMA = 3;
+    private static final int RECHARGE_SCHEMA = 3;
+    private static final int PLAYER_SCHEMA = 4;
+    private static final int PIN_SCHEMA = 5;
+    public static final int SCHEMA = 6;
+    final NexusPins pins = new NexusPins();
+    private boolean hasPinHistory;
+    final PlayerEnergyData playerEnergy = new PlayerEnergyData();
+    private boolean hasPlayerHistory;
     private final LeyProfile profile;
     private final NexusLedger ledger;
     private final LongSupplier clock;
     private Map<ResourceLocation, MagicAmount> configuredRates = Map.of();
     private Path storageDirectory;
     private boolean hasRechargeHistory;
+    private boolean hasCapacityHistory;
 
     public LeyWorldData(LeyProfile profile, LongSupplier clock) {
-        this(profile, clock, profile.rechargeTicks(), false);
+        this(profile, clock, profile.rechargeTicks(), NexusLedger.CAPACITY_SCALE_ONE);
     }
-    private LeyWorldData(LeyProfile profile, LongSupplier clock, int effectiveRechargeTicks, boolean hasRechargeHistory) {
+    private LeyWorldData(LeyProfile profile, LongSupplier clock, int effectiveRechargeTicks, int capacityScale) {
         this.profile = profile;
-        this.ledger = new NexusLedger(effectiveRechargeTicks);
+        this.ledger = new NexusLedger(effectiveRechargeTicks, capacityScale);
         this.clock = clock;
-        this.hasRechargeHistory = hasRechargeHistory;
     }
     public LeyProfile profile() { return profile; }
     public NexusLedger ledger() { return ledger; }
@@ -46,6 +53,7 @@ public final class LeyWorldData extends SavedData {
         LongSupplier clock = () -> server.overworld().getGameTime();
         Path path = server.getWorldPath(LevelResource.ROOT).resolve("data").resolve(NAME + ".dat");
         int override = LeyConfig.rechargeOverride();
+        int capacityScale = LeyConfig.capacityScale();
         var configured = LeyLinesApi.paradigms().configuredRates();
         LeyWorldData data;
         boolean existing = !Files.notExists(path);
@@ -67,12 +75,14 @@ public final class LeyWorldData extends SavedData {
             data.setDirty();
         }
         data.storageDirectory = path.getParent();
-        data.applyRechargeOverride(override, () -> {
+        if (data.pins.activateStaged()) data.setDirty();
+        String backupReason = capacityScale != data.ledger.capacityScale() ? "before-capacity" : "before-recharge";
+        data.applyPoolSettings(override, capacityScale, () -> {
             if (existing) {
                 try {
-                    copyBackup(path, "before-recharge");
+                    copyBackup(path, backupReason);
                 } catch (IOException failure) {
-                    throw new IllegalStateException("Recharge backup failed; ley data has not been replaced", failure);
+                    throw new IllegalStateException("Nexus pool settings backup failed; ley data has not been replaced", failure);
                 }
             }
         });
@@ -85,10 +95,48 @@ public final class LeyWorldData extends SavedData {
         Files.copy(path, path.resolveSibling(NAME + "-" + reason + "-" + UUID.randomUUID() + ".dat.bak"));
     }
 
+    List<Nexus> activePins() { return pins.active(); }
+
+    void stagePin(NexusPins.Pin pin) {
+        if (ledger.mutationInProgress()) throw new IllegalStateException("Nested ledger mutation");
+        if (!hasPinHistory) {
+            backupCurrent("before-pins");
+            hasPinHistory = true;
+        }
+        pins.put(pin);
+        setDirty();
+    }
+
+    private void backupCurrent(String reason) {
+        if (storageDirectory == null) throw new IllegalStateException("No world backup directory");
+        try {
+            Files.createDirectories(storageDirectory);
+            Path backup = Files.createTempFile(storageDirectory, NAME + "-" + reason + "-", ".dat.bak");
+            CompoundTag root = new CompoundTag();
+            root.put("data", encode(new CompoundTag()));
+            NbtIo.writeCompressed(root, backup);
+        } catch (IOException failure) {
+            throw new IllegalStateException("Ley ledger backup failed (" + reason + "); ledger unchanged", failure);
+        }
+    }
+
+    void preparePlayerSave() {
+        if (hasPlayerHistory || hasPinHistory) return;
+        backupCurrent("before-player-energy");
+        hasPlayerHistory = true;
+    }
+
     public void applyRechargeOverride(int override, Runnable backup) {
+        applyPoolSettings(override, ledger.capacityScale(), backup);
+    }
+
+    public void applyPoolSettings(int override, int capacityScale, Runnable backup) {
         int target = override == 0 ? profile.rechargeTicks() : override;
-        if (ledger.changeRechargeTicks(target, Math.max(0, clock.getAsLong()), backup)) {
-            hasRechargeHistory = true;
+        boolean rechargeChanged = target != ledger.rechargeTicks();
+        boolean capacityChanged = capacityScale != ledger.capacityScale();
+        if (ledger.changeLimits(target, capacityScale, Math.max(0, clock.getAsLong()), backup)) {
+            hasRechargeHistory |= rechargeChanged;
+            hasCapacityHistory |= capacityChanged;
             setDirty();
         }
     }
@@ -100,7 +148,20 @@ public final class LeyWorldData extends SavedData {
             if (!rate.equals(ledger.rates().get(id))) LogUtils.getLogger().warn("Ley currency {} retains saved rate {}; configured {} requires explicit migration", id, ledger.rates().get(id), rate);
         });
     }
-    public RateMigration previewMigration() { return ledger.previewMigration(configuredRates, Math.max(0, clock.getAsLong())); }
+    public RateMigration previewMigration() {
+        var entries = pins.list().isEmpty() ? Map.<NexusId, NexusLedger.Balance>of() : ledger.entries();
+        for (var pin : pins.list()) {
+            if (pin.state() != NexusPins.State.RETIRED) continue;
+            var balance = entries.get(pin.nexus().id());
+            if (balance == null) continue;
+            for (var currency : balance.currencies().keySet()) {
+                var configured = configuredRates.get(currency);
+                if (configured != null && !configured.equals(ledger.savedRate(currency)))
+                    throw new IllegalStateException("Recover " + currency + " from retired pin " + pin.id() + " before migrating its rate");
+            }
+        }
+        return ledger.previewMigration(configuredRates, Math.max(0, clock.getAsLong()));
+    }
     public boolean applyMigration(RateMigration preview) {
         if (!preview.newRates().equals(previewMigration().newRates())) return false;
         return ledger.applyMigration(preview, Math.max(0, clock.getAsLong()), new NexusLedger.MigrationHooks() {
@@ -139,11 +200,18 @@ public final class LeyWorldData extends SavedData {
         LeyProfile profile = new LeyProfile(p.getInt("spacing"), p.getInt("lineWidth"), p.getInt("nexusRadius"),
                 p.getInt("verticalReach"), p.getInt("capacity"), p.getInt("rechargeTicks"));
         int effectiveRechargeTicks = profile.rechargeTicks();
-        if (schema == SCHEMA) {
+        if (schema >= RECHARGE_SCHEMA) {
             require(tag, "effectiveRechargeTicks", Tag.TAG_INT);
             effectiveRechargeTicks = tag.getInt("effectiveRechargeTicks");
         }
-        LeyWorldData data = new LeyWorldData(profile, clock, effectiveRechargeTicks, schema == SCHEMA);
+        int capacityScale = NexusLedger.CAPACITY_SCALE_ONE;
+        if (schema == SCHEMA) {
+            require(tag, "effectiveCapacityScale", Tag.TAG_INT);
+            capacityScale = tag.getInt("effectiveCapacityScale");
+        }
+        LeyWorldData data = new LeyWorldData(profile, clock, effectiveRechargeTicks, capacityScale);
+        data.hasRechargeHistory = schema >= RECHARGE_SCHEMA;
+        data.hasCapacityHistory = schema == SCHEMA;
         if (schema >= BASE_SCHEMA) {
             require(tag, "revision", Tag.TAG_LONG);
             data.ledger.restoreRevision(tag.getLong("revision"));
@@ -153,13 +221,28 @@ public final class LeyWorldData extends SavedData {
                 data.ledger.restoreRate(identifier(rate.getString("id")), amount(rate, "rate"));
             }
         }
+        if (schema == PIN_SCHEMA || (schema == SCHEMA && tag.contains("pins"))) {
+            data.hasPinHistory = true;
+            data.pins.read(tag);
+        }
         ListTag rows = compounds(tag, "balances");
         for (int i = 0; i < rows.size(); i++) {
             CompoundTag row = rows.getCompound(i);
             require(row, "dimension", Tag.TAG_STRING);
-            for (String key : new String[]{"ax", "az", "bx", "bz", "capacity"}) require(row, key, Tag.TAG_INT);
+            require(row, "capacity", Tag.TAG_INT);
             require(row, "tick", Tag.TAG_LONG);
-            NexusId id = new NexusId(row.getString("dimension"), row.getInt("ax"), row.getInt("az"), row.getInt("bx"), row.getInt("bz"));
+            NexusId id;
+            if (schema >= PIN_SCHEMA && row.contains("pin")) {
+                require(row, "pin", Tag.TAG_STRING);
+                var pin = data.pins.get(identifier(row.getString("pin")));
+                if (pin == null || pin.state() == NexusPins.State.STAGED_ADD
+                        || pin.nexus().capacity(profile) != row.getInt("capacity"))
+                    throw new IllegalArgumentException("Invalid pinned account: " + row.getString("pin"));
+                id = NexusId.pinned(row.getString("dimension"), pin.id());
+            } else {
+                for (String key : new String[]{"ax", "az", "bx", "bz"}) require(row, key, Tag.TAG_INT);
+                id = new NexusId(row.getString("dimension"), row.getInt("ax"), row.getInt("az"), row.getInt("bx"), row.getInt("bz"));
+            }
             if (!id.dimension().equals("minecraft:overworld")) throw new IllegalArgumentException("Inactive dimension balance");
             MagicAmount raw;
             var currencies = new TreeMap<ResourceLocation, Long>();
@@ -179,23 +262,29 @@ public final class LeyWorldData extends SavedData {
                     if (units <= 0 || !data.ledger.rates().containsKey(key) || currencies.putIfAbsent(key, units) != null) throw new IllegalArgumentException("Invalid/duplicate currency balance");
                 }
             }
-            data.ledger.restore(id, new NexusLedger.Balance(row.getInt("capacity"), raw, currencies, row.getLong("tick")));
+            data.ledger.restore(id, new NexusLedger.Balance(row.getInt("capacity"), raw, currencies, row.getLong("tick")),
+                    data.hasCapacityHistory);
+        }
+        if (schema == PLAYER_SCHEMA || data.hasPinHistory || (schema == SCHEMA && tag.contains("playerEnergy"))) {
+            data.hasPlayerHistory = true;
+            require(tag, "playerEnergy", Tag.TAG_COMPOUND);
+            data.playerEnergy.read(tag.getCompound("playerEnergy"), data.ledger);
         }
         if (schema == 1) data.setDirty();
         return data;
     }
-    private static ListTag compounds(CompoundTag tag, String key) {
+    static ListTag compounds(CompoundTag tag, String key) {
         require(tag, key, Tag.TAG_LIST);
         ListTag list = (ListTag) tag.get(key);
         if (!list.isEmpty() && list.getElementType() != Tag.TAG_COMPOUND) throw new IllegalArgumentException("Invalid " + key + " list");
         return list;
     }
-    private static ResourceLocation identifier(String value) {
+    static ResourceLocation identifier(String value) {
         ResourceLocation id = ResourceLocation.tryParse(value);
         if (!value.contains(":") || id == null) throw new IllegalArgumentException("Invalid currency identifier");
         return id;
     }
-    private static MagicAmount amount(CompoundTag tag, String key) {
+    static MagicAmount amount(CompoundTag tag, String key) {
         require(tag, key, Tag.TAG_COMPOUND);
         CompoundTag value = tag.getCompound(key);
         require(value, "numerator", Tag.TAG_STRING); require(value, "denominator", Tag.TAG_STRING);
@@ -203,12 +292,12 @@ public final class LeyWorldData extends SavedData {
         if (!n.matches("0|[1-9][0-9]*") || !d.matches("[1-9][0-9]*")) throw new IllegalArgumentException("Invalid exact amount");
         return new MagicAmount(new BigInteger(n), new BigInteger(d));
     }
-    private static void putAmount(CompoundTag tag, String key, MagicAmount amount) {
+    static void putAmount(CompoundTag tag, String key, MagicAmount amount) {
         CompoundTag value = new CompoundTag();
         value.putString("numerator", amount.numerator().toString()); value.putString("denominator", amount.denominator().toString());
         tag.put(key, value);
     }
-    private static void require(CompoundTag tag, String key, int type) {
+    static void require(CompoundTag tag, String key, int type) {
         if (!tag.contains(key, type)) throw new IllegalArgumentException("Missing/invalid ley field: " + key);
     }
     @Override public CompoundTag save(CompoundTag tag, HolderLookup.Provider lookup) {
@@ -216,8 +305,13 @@ public final class LeyWorldData extends SavedData {
         return encode(tag);
     }
     private CompoundTag encode(CompoundTag tag) {
-        tag.putInt("schema", hasRechargeHistory ? SCHEMA : BASE_SCHEMA);
-        if (hasRechargeHistory) tag.putInt("effectiveRechargeTicks", ledger.rechargeTicks());
+        tag.putInt("schema", hasCapacityHistory ? SCHEMA : hasPinHistory ? PIN_SCHEMA
+                : hasPlayerHistory ? PLAYER_SCHEMA : hasRechargeHistory ? RECHARGE_SCHEMA : BASE_SCHEMA);
+        if (hasCapacityHistory) tag.putInt("effectiveCapacityScale", ledger.capacityScale());
+        if (hasRechargeHistory || hasPlayerHistory || hasPinHistory || hasCapacityHistory)
+            tag.putInt("effectiveRechargeTicks", ledger.rechargeTicks());
+        if (hasPlayerHistory || hasPinHistory) tag.put("playerEnergy", playerEnergy.write());
+        if (hasPinHistory) tag.put("pins", pins.write());
         tag.putInt("layoutVersion", LeyProfile.LAYOUT_VERSION);
         tag.putString("dimension", "minecraft:overworld");
         CompoundTag p = new CompoundTag();
@@ -235,8 +329,14 @@ public final class LeyWorldData extends SavedData {
         for (Map.Entry<NexusId, NexusLedger.Balance> entry : ledger.entries().entrySet()) {
             NexusId id = entry.getKey(); NexusLedger.Balance balance = entry.getValue();
             CompoundTag row = new CompoundTag();
-            row.putString("dimension", id.dimension()); row.putInt("ax", id.ax()); row.putInt("az", id.az());
-            row.putInt("bx", id.bx()); row.putInt("bz", id.bz()); row.putInt("capacity", balance.capacity());
+            row.putString("dimension", id.dimension());
+            if (id.pinId().isPresent()) {
+                row.putString("pin", id.pinId().get().toString());
+            } else {
+                row.putInt("ax", id.ax()); row.putInt("az", id.az());
+                row.putInt("bx", id.bx()); row.putInt("bz", id.bz());
+            }
+            row.putInt("capacity", balance.capacity());
             putAmount(row, "raw", balance.raw()); row.putLong("tick", balance.tick());
             ListTag currencies = new ListTag();
             balance.currencies().forEach((currency, units) -> {

@@ -18,7 +18,7 @@ import zone.moddev.mc.skysleylines.api.PowerRequest;
 import zone.moddev.mc.skysleylines.core.LeySaveLimits;
 
 /** Server script binding. Uses exact strings for quantities that JavaScript numbers cannot preserve. */
-public final class LeyServerScripts {
+public final class LeyServerScripts extends LeyPlayerScripts {
     private static final Pattern EXACT_AMOUNT = Pattern.compile("(0|[1-9][0-9]*)(?:/([1-9][0-9]*))?");
 
     static ResourceLocation namespaced(String id) {

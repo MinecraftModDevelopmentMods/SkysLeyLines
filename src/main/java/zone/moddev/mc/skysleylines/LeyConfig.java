@@ -1,8 +1,10 @@
 package zone.moddev.mc.skysleylines;
 
+import java.math.BigDecimal;
 import java.util.List;
 import net.neoforged.neoforge.common.ModConfigSpec;
 import zone.moddev.mc.skysleylines.api.LeyProfile;
+import zone.moddev.mc.skysleylines.core.NexusLedger;
 
 /** Installation defaults copied once when each world first initializes its ley profile. */
 public final class LeyConfig {
@@ -25,6 +27,7 @@ public final class LeyConfig {
     public static final ModConfigSpec SPEC = BUILDER.build();
     private static final ModConfigSpec.Builder SERVER = new ModConfigSpec.Builder();
     public static final String RECHARGE_OVERRIDE_KEY = "rechargeTicksOverride";
+    public static final String CAPACITY_MULTIPLIER_KEY = "nexusCapacityMultiplier";
     public static final String VISION_STYLE_KEY = "defaultVisionStyle";
     public static final List<String> VISION_STYLES = List.of("river", "crackle", "sparkles", "glow");
     private static final ModConfigSpec.ConfigValue<Object> RECHARGE_OVERRIDE = SERVER
@@ -33,6 +36,13 @@ public final class LeyConfig {
             .worldRestart()
             .translation("config.skysleylines.rechargeTicksOverride")
             .define(RECHARGE_OVERRIDE_KEY, (Object) 0, value -> value != null);
+    private static final ModConfigSpec.ConfigValue<Object> CAPACITY_MULTIPLIER = SERVER
+            .comment("Multiplies the base raw capacity of natural and authored nexuses on world start.",
+                    "0.01 gives 1% of the original capacity; 1.0 uses the original capacity.",
+                    "Use 0.0001 to 100 with at most four decimal places. Existing converted units are preserved.")
+            .worldRestart()
+            .translation("config.skysleylines.nexusCapacityMultiplier")
+            .define(CAPACITY_MULTIPLIER_KEY, (Object) 0.01, value -> value != null);
     public static final ModConfigSpec.ConfigValue<String> DEFAULT_VISION_STYLE = SERVER
             .comment("Ley Vision style for operator vision and unstyled grants. Applies to existing worlds too.",
                     "Allowed values: river, crackle, sparkles, glow")
@@ -53,5 +63,29 @@ public final class LeyConfig {
 
     public static boolean validRechargeOverride(int ticks) {
         return ticks >= 0 && ticks <= 1_728_000;
+    }
+
+    public static double configuredCapacityMultiplier() {
+        return CAPACITY_MULTIPLIER.getRaw() instanceof Number value ? value.doubleValue() : Double.NaN;
+    }
+
+    public static int capacityScale() {
+        double multiplier = configuredCapacityMultiplier();
+        if (validCapacityMultiplier(multiplier)) return capacityScale(multiplier);
+        throw new IllegalArgumentException("nexusCapacityMultiplier must be a number from 0.0001 through 100 with at most four decimal places");
+    }
+
+    public static boolean validCapacityMultiplier(double multiplier) {
+        if (!Double.isFinite(multiplier) || multiplier < 0.0001 || multiplier > 100) return false;
+        try {
+            capacityScale(multiplier);
+            return true;
+        } catch (ArithmeticException invalidPrecision) {
+            return false;
+        }
+    }
+
+    private static int capacityScale(double multiplier) {
+        return BigDecimal.valueOf(multiplier).multiply(BigDecimal.valueOf(NexusLedger.CAPACITY_SCALE_ONE)).intValueExact();
     }
 }
