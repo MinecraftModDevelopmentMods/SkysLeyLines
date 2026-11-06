@@ -58,10 +58,19 @@ public final class LeyServerScripts extends LeyPlayerScripts {
         inspection.put("nexusStrength", field.nexusStrength());
         inspection.put("verticalFactor", field.verticalFactor());
         inspection.put("dimensionalResistance", field.dimensionalResistance());
-        inspection.put("account", context.power().quoteAt(x, y, z).map(quote -> Map.of(
-                "nexus", quote.nexus().id().toString(), "strength", quote.nexus().strength(),
-                "rechargeTicks", quote.rechargeTicks(),
-                "balance", snapshot(quote.account(), LeyLinesApi.currencyInfo(level)))).orElse(null));
+        inspection.put("account", context.power().quoteAt(x, y, z).map(quote -> {
+            var nexus = quote.nexus();
+            var account = new LinkedHashMap<String, Object>();
+            account.put("nexus", nexus.id().toString());
+            account.put("x", nexus.x());
+            account.put("z", nexus.z());
+            account.put("strength", nexus.strength());
+            account.put("rechargeTicks", quote.rechargeTicks());
+            account.put("balance", snapshot(quote.account(), LeyLinesApi.currencyInfo(level)));
+            nexus.id().pinId().ifPresent(id -> account.put("pinId", id.toString()));
+            nexus.authoredY().ifPresent(yAnchor -> account.put("authoredY", yAnchor));
+            return Collections.unmodifiableMap(account);
+        }).orElse(null));
         return Collections.unmodifiableMap(inspection);
     }
 

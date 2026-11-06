@@ -1,12 +1,12 @@
 # Pack maker guide
 
-For NeoForge 1.21.1, ship `config/skysleylines-common.toml` for new-world layout, capacity, and base recharge. Ship `config/skysleylines-server.toml` for the default vision style and optional recharge override. A server operator can place a copy in `<world>/serverconfig/` to set those two values for one world. The Ley Meter and `/skysleylines profile` show the applied settings. See [configuration and save compatibility](CONFIGURATION.md).
+For NeoForge 1.21.1, ship `config/skysleylines-common.toml` for new-world layout, base capacity, and base recharge. Ship `config/skysleylines-server.toml` for the default vision style, recharge override, and nexus capacity multiplier. An operator can place a copy in `<world>/serverconfig/` to tune one world. Reopen the world to apply capacity and recharge changes. The Ley Meter shows the effective capacity and refill time for the nexus you inspect. Use `/skysleylines profile` to check the world settings. See [configuration and save compatibility](CONFIGURATION.md).
 
 From 0.5.5 you can configure player pools and react to balance and job events. See the [player energy guide](PLAYER_ENERGY.md) for examples and policy files.
 
 ## KubeJS
 
-The optional scripting bridge was introduced in Sky’s Ley Lines 0.5.1. Install the matching [KubeJS build 381](https://www.curseforge.com/minecraft/mc-mods/kubejs/files/9396059/additional-files) stack for Minecraft 1.21.1. Put these scripts on the server, or in the instance for single-player packs.
+The optional scripting bridge uses the NeoForge 1.21.1 stack. See [the release guide](RELEASE-0.5.6.md) for tested KubeJS and Rhino builds. Put these scripts on the server, or in the instance for single-player packs.
 
 Save this as `kubejs/startup_scripts/ley_currency.js` and restart the game or dedicated server.
 
@@ -55,7 +55,11 @@ ItemEvents.rightClicked('minecraft:spyglass', event => {
 
 Startup registration takes a unique `kubejs:` currency ID and a positive exact rate string. For a transaction, use a namespaced consumer ID and pass the responsible player when there is one. The script owns gameplay permissions and should apply rewards only after payment succeeds. Omit the vision style to use the server default. See the [public API reference](API.md#convert-spend-and-return) for transaction result codes.
 
-Inspection returns a map with `active`, the field strengths, coordinates, and a nullable `account`. The account has `nexus`, `strength`, `rechargeTicks`, and `balance`. A balance has `raw`, `total`, `capacity`, `tick`, and a `currencies` map keyed by ID. Each currency row has `units`, `unitsPerRaw`, and `active`. Transactions return `succeeded` and `status`. Success adds `nexus`, `revision`, `before`, and `after`. Use map `get` calls to read fields. Balances, ticks and revisions that can exceed JavaScript integer precision are strings. Supply amounts as strings, for example `"1000"` or `"3/2"` for raw magic or rates.
+Inspection is read-only. The result has the sample’s `dimension`, `x`, `y`, `z`, and `active` flag, plus `naturalStrength`, `lineStrength`, `nexusStrength`, `verticalFactor`, and `dimensionalResistance`. An active field can have no eligible nexus, in which case `account` is null.
+
+The account has `nexus` (its stable ID), `strength` (its intrinsic strength), `rechargeTicks` (effective full refill time), and `balance`. Since 0.5.6 it also gives the nexus centre as `x` and `z`. If the account belongs to an active [authored pin](WORLDGEN_AND_PINS.md), it includes `pinId` and `authoredY`. For a seeded nexus those keys are absent, so `account.get('pinId')` returns null.
+
+A balance has `raw`, `total`, `capacity` (after applying the world’s multiplier), `tick`, and a `currencies` map keyed by ID. Each currency row has `units`, `unitsPerRaw`, and `active`. Transactions return `succeeded` and `status`. Success adds `nexus`, `revision`, `before`, and `after`. Use map `get` calls to read fields. Balances, ticks and revisions that can exceed JavaScript integer precision are strings. Supply amounts as strings, for example `"1000"` or `"3/2"` for raw magic or rates.
 
 Use `/reload` for server script changes. Restart the entire process for startup definitions. A world keeps its saved rates when a pack changes a definition. Use the [rate migration commands](CONFIGURATION.md) to apply changed rates. Removing a definition or the KubeJS mod marks the retained currency inactive until the same ID returns.
 

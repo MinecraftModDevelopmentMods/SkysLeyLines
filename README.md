@@ -18,6 +18,6 @@ The [documentation index](docs/README.md) is also in the mod JAR at `META-INF/sk
 
 ## Install
 
-This beta is for **Minecraft 1.21.1, NeoForge 21.1.247 or later in the 21.1 line, and Java 21**. Use the same build on the server and clients. See the [changelog](CHANGELOG.md) for what’s changed since the alpha.
+The **0.5.6.121012 beta** is for **Minecraft 1.21.1, NeoForge 21.1.247 or later in the 21.1 line, and Java 21**. Use the same build on the server and clients. The [release guide](docs/RELEASE-0.5.6.md) covers upgrading and the optional KubeJS stack. See the [changelog](CHANGELOG.md) for earlier changes.
 
 If you’re working on the source, use the [Eclipse setup guide](ECLIPSE.md). The Windows development launcher uses a [guarded GLFW runtime](GLFW.md).

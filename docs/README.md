@@ -8,13 +8,13 @@ Start with the guide for what you want to do.
 | --- | --- |
 | Find a ley line or nexus and understand the readings | [Player guide](PLAYER_GUIDE.md) |
 | Install the mod, run operator commands, or check a nexus account | [Server operator guide](SERVER_GUIDE.md) |
-| Change layout defaults, recharge, or Ley Vision style | [Configuration and save compatibility](CONFIGURATION.md) |
+| Change layout defaults, nexus capacity, recharge, or Ley Vision style | [Configuration and save compatibility](CONFIGURATION.md) |
 | Register pack currencies or write KubeJS scripts | [Pack maker guide](MODPACKS.md) |
 | Build a Java mod that samples the field or uses nexus power | [Java integration quick start](INTEGRATION.md) and [public API reference](API.md) |
 | Place structures at nexuses, sample ore candidates, or stage an admin pin | [Worldgen and nexus pins](WORLDGEN_AND_PINS.md) |
 | Set up personal pools, timed transfers, death drops, or KubeJS events | [Player energy pools](PLAYER_ENERGY.md) |
 | Diagnose a missing reading, payment failure, or startup problem | [Troubleshooting](TROUBLESHOOTING.md) |
-| Check version requirements and what changed | [Current release and supported languages](RELEASE-0.5.4.md), [0.5.3](RELEASE-0.5.3.md), [0.5.2](RELEASE-0.5.2.md), and [0.5.1](RELEASE-0.5.1.md) |
+| Check version requirements and what changed | [Current release](RELEASE-0.5.6.md), [0.5.4 and supported languages](RELEASE-0.5.4.md), [0.5.3](RELEASE-0.5.3.md), [0.5.2](RELEASE-0.5.2.md), and [0.5.1](RELEASE-0.5.1.md) |
 
 ## Finding this guide in a JAR
 

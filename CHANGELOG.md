@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.6.121012 beta
+
+I’ve brought the guides in the JAR up to date with player pools, timed transfers, nexus pins, and the smaller nexus reserves. The Java quick start now shows how to get Ley Lines from MMD Maven, and the KubeJS guides cover player pools and job events.
+
+- KubeJS `LeyLines.inspectAt` now gives you the nexus centre. If the nexus is a named pin, you also get its ID and authored height, so a pack can recognise a site even when the player is some distance from its anchor.
+- The JAR manifest now reports save schema 6, which 0.5.5 already used for nexus capacity changes. Worlds keep their saved layout, accounts, and player pools.
+
 ## 0.5.5.121012 beta
 
 I wanted magic mods to be able to share a nexus even when they use completely different kinds of magic. A technomancer can now carry aether and a mage can carry mana. Each mod decides who gets a pool and how big it is, and both can draw from the same nexus.

@@ -49,7 +49,7 @@ var returned = power.returnToRawAt(x, y, z, AETHER, 1000, plant);
 // Success removes 1000 aether and restores exactly 1 raw at the saved rate.
 ```
 
-Every paradigm, player, and machine shares one account per nexus. Consumers may use currencies they understand from any paradigm. Raw magic is a conversion reserve, not a directly spendable currency. There are no per-player wallets or per-currency capacities.
+Every paradigm, player, and machine draws from the same account at a nexus. Consumers may use currencies they understand from any paradigm. Raw magic can fund conversion into registered currencies. All nexus balances count toward one capacity. A child mod can also open [personal pools](PLAYER_ENERGY.md) that hold converted units outside the nexus, with a separate capacity for each player and currency.
 
 `raw + sum(currency units / unitsPerRaw)` is the total charge. Conversion and return preserve this total; spending reduces it. A capacity reduction can leave retained energy above the new limit. Such accounts can still convert, spend, and return energy. They cannot recharge or accept deposits until there is room. Recovery adds raw into the remaining space at `capacity / rechargeTicks` per Overworld game tick. It works while chunks are unloaded, without wall-clock/offline recovery or a per-node tick loop. Elapsed recovery is settled before a transaction, preventing retroactive recovery into space that spending just freed.
 

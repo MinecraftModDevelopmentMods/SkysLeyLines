@@ -17,4 +17,4 @@ For a Windows startup crash in `glfw.dll`, include the native crash report and l
 
 When reporting an issue, include the exact versions, whether you were in single-player or on a dedicated server, and the relevant log excerpt or command output. For a field or balance issue, include the dimension, coordinates, `profile`, `sample`, and `account` readings if you can share them.
 
-[Release requirements](RELEASE-0.5.4.md) · [Operator commands](SERVER_GUIDE.md) · [Pack scripting](MODPACKS.md)
+[Release requirements](RELEASE-0.5.6.md) · [Operator commands](SERVER_GUIDE.md) · [Pack scripting](MODPACKS.md)

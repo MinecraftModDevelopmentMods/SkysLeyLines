@@ -53,7 +53,7 @@ Admin pins use a restart-applied overlay. See [Worldgen and nexus pins](WORLDGEN
 
 ## Player energy policy
 
-Player pools and timed operations have their own JSON policy layers. See [Player energy pools](PLAYER_ENERGY.md) for data pack and server files, death behavior, and the schema 4 upgrade.
+Player pools and timed operations have their own JSON policy layers. See [Player energy pools](PLAYER_ENERGY.md) for data pack and server files, death behavior, and save compatibility.
 
 ## Shared accounts and recharge
 
