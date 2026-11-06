@@ -1,6 +1,6 @@
 # Server operator guide
 
-Install the matching Sky’s Ley Lines build on the server and its clients. For a local world, place the JAR in the instance’s `mods` directory. Check the [release requirements](RELEASE-0.5.4.md) before choosing a build.
+Install the matching Sky’s Ley Lines build on the server and its clients. For a local world, place the JAR in the instance’s `mods` directory. Check the [release requirements](RELEASE-0.5.6.md) before choosing a build.
 
 ## Survey a nexus
 
@@ -20,7 +20,7 @@ Permission levels below are Minecraft command permission levels. Brackets mark o
 | `/skysleylines vision [on\|off]` | 2 | Sets personal operator vision or toggles it when the argument is omitted. Run it as a player. |
 | `/skysleylines sample [x y z]` | 2 | Shows field activity, strengths, vertical factor, resistance, and total charge if a nexus is eligible. |
 | `/skysleylines account [x y z]` | 2 | Shows the eligible nexus’s raw and total charge, capacity, full refill time, and saved currency balances and rates. |
-| `/skysleylines profile` | 2 | Shows the saved world profile and the effective recharge override. |
+| `/skysleylines profile` | 2 | Shows the saved world profile, effective recharge interval, and capacity multiplier. |
 | `/skysleylines rates` | 2 | Lists saved rates and which currencies are installed. |
 | `/skysleylines rates preview` | 4 | Previews a currency rate migration for the issuing operator. |
 | `/skysleylines rates apply <revision>` | 4 | Applies that operator’s matching preview and backs up the prior ledger. |
@@ -34,6 +34,6 @@ See [Worldgen and nexus pins](WORLDGEN_AND_PINS.md#pin-a-nexus-in-an-existing-wo
 
 ## Balance a live world
 
-Use **Mods → Sky’s Ley Lines → Config** in a private single-player session or edit the server TOML while the world is closed. Change `rechargeTicksOverride` to retune recharge for an existing world. A value of `72000` is three Minecraft days for a full refill. Reopen the world and check `effectiveRechargeTicks` with the profile command.
+Use **Mods → Sky’s Ley Lines → Config** in a private single-player session or edit the server TOML while the world is closed. Change `rechargeTicksOverride` to retune recharge for an existing world. A value of `72000` is three Minecraft days for a full refill. Set `nexusCapacityMultiplier` to tune how much raw-equivalent charge a nexus can hold. The default of `0.01` gives 70 raw capacity to a nexus that originally held 7,000. Reopen the world and check `effectiveRechargeTicks` and `nexusCapacityMultiplier` with the profile command.
 
 Before changing currency rates, read the current account and run the rate migration preview. Changing a pack’s configured rate leaves existing balances at their saved rate until you apply a preview. If other transactions invalidate the preview, create a fresh one. See the [configuration guide](CONFIGURATION.md) for config paths, backups, and save versions.

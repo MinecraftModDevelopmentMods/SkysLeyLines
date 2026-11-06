@@ -77,7 +77,7 @@ The order is child code, data pack, instance file, then world file. A layer only
 
 Default death policy is `DROP`. Active balances are emptied and leave collectible energy where the player died. Walk near the floating shards with a compatible pool to collect them. They move only as much as fits, and leftovers stay until collected or expired. By default any eligible player can pick them up, their lifetime is 6,000 server ticks, and `keepInventory` keeps the player’s balance. Other choices are `KEEP` and `LOSE`. `ownerOnly` restricts a drop to its owner. Dormant balances remain in the wallet in every mode.
 
-On the first persistent pool change, the mod backs up the current nexus ledger and upgrades `<world>/data/skysleylines.dat` to schema 4. Player balances and drops live in that same file. Dropped entities are views of the saved balances and reappear when their chunks are loaded. Clients and servers must use matching builds. Back up the world before upgrading. Older builds cannot read schema 4.
+Player balances and drops live in `<world>/data/skysleylines.dat`. Adding player data to an older ledger requires at least schema 4 and a backup before the upgrade. A ledger already using a newer schema keeps it. Dropped entities are views of the saved balances and reappear when their chunks are loaded. Back up the world before upgrading and use matching builds on the client and server. See [save compatibility](CONFIGURATION.md).
 
 ## KubeJS
 
@@ -89,16 +89,16 @@ const surveyPower = 'kubejs:survey_progression'
 
 PlayerEvents.loggedIn(event => {
   const player = event.player
-  const pools = LeyLines.inspectPlayer(player).pools
-  if (!pools[surveyAether]) {
+  const pools = LeyLines.inspectPlayer(player).get('pools')
+  if (pools.get(surveyAether) === null) {
     LeyLines.configurePool(player, surveyAether, true, '1000', '3/2', surveyPower)
   }
 })
 
 ItemEvents.rightClicked('minecraft:spyglass', event => {
-  if (event.hand !== 'MAIN_HAND') return
+  if (event.hand.name() !== 'MAIN_HAND') return
   const paid = LeyLines.spendPool(event.player, surveyAether, '10', surveyPower)
-  if (paid.succeeded) LeyLines.grantVision(event.player, surveyPower, 1200, 'skysleylines:crackle')
+  if (paid.get('succeeded')) LeyLines.grantVision(event.player, surveyPower, 1200, 'skysleylines:crackle')
 })
 
 LeyLinesEvents.playerPoolEmpty(event => {
@@ -110,5 +110,5 @@ Use `inspectPlayer(player)` or `inspectPlayer(server, uuid)`, `configurePool(pla
 
 For transfers use `withdrawToPlayer(player, currency, units, schedule, source)`, `depositFromPlayer(player, currency, units, schedule, source)`, and `transferPlayers(from, to, currency, units, schedule, source)`. For raw conversion use `scheduleConversion(level, x, y, z, currency, raw, schedule, source[, actor])`. Pass `'instant'`, `'duration:40'`, or `'rate:3/2'` for the schedule. Timed submissions return `status: 'RUNNING'` and a `jobId`. Read progress with `energyJob(server, jobId)` or cancel with `cancelEnergyJob(server, jobId)`. Balances, rates, and completed amounts are returned as exact strings.
 
-`LeyLinesEvents.playerPoolChanged` provides `playerId`, `currency`, `before`, `after`, `receipt`, and `server`. `playerPoolEmpty` has the same fields and fires only when positive units become zero. `energyJobFinished` provides `job` and `server`. These are committed notifications. Use a later server tick to initiate a new transaction from an event.
+`LeyLinesEvents.playerPoolChanged` provides `playerId`, `currency`, `before`, `after`, `receipt`, and `server`. `playerPoolEmpty` has the same fields and fires only when positive units become zero. `energyJobFinished` provides `job` and `server`. Read event properties directly, then use map access for their contents, such as `event.after.get('units')` or `event.job.get('status')`. These are committed notifications. Use a later server tick to initiate a new transaction from an event.
 
