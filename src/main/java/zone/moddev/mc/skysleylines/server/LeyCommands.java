@@ -42,6 +42,7 @@ public final class LeyCommands {
                                                 .then(Commands.argument("pos", BlockPosArgument.blockPos())
                                                         .executes(c -> recover(c.getSource(), ResourceLocationArgument.getId(c, "currency"),
                                                                 LongArgumentType.getLong(c, "units"), BlockPosArgument.getBlockPos(c, "pos"))))))))
+                .then(NexusPinCommands.root())
                 .then(Commands.literal("vision").executes(c -> vision(c.getSource(), null))
                         .then(Commands.literal("on").executes(c -> vision(c.getSource(), true)))
                         .then(Commands.literal("off").executes(c -> vision(c.getSource(), false))))
@@ -51,8 +52,8 @@ public final class LeyCommands {
                                 .then(Commands.argument("revision", LongArgumentType.longArg(0)).executes(c -> apply(c.getSource(), LongArgumentType.getLong(c, "revision"))))))
                 .then(Commands.literal("profile").executes(c -> {
                     var p = LeyLinesApi.forLevel(c.getSource().getLevel()).profile();
-                    int effective = LeyServerContext.world(c.getSource().getServer()).ledger().rechargeTicks();
-                    message(c.getSource(), "profile", LeyProfile.LAYOUT_VERSION, p, effective);
+                    var ledger = LeyServerContext.world(c.getSource().getServer()).ledger();
+                    message(c.getSource(), "profile", LeyProfile.LAYOUT_VERSION, p, ledger.rechargeTicks(), ledger.capacityMultiplier());
                     return 1;
                 })));
     }
@@ -90,10 +91,13 @@ public final class LeyCommands {
         Nexus node = found.get();
         int x = (int) Math.floor(node.x()), z = (int) Math.floor(node.z());
         LeyColumn column = context.field().sampleColumn(x, z);
-        String location = column.active()
+        String location = node.authoredY().isPresent()
+                ? String.format(Locale.ROOT, "%.2f %d %.2f", node.x(), node.authoredY().getAsInt(), node.z())
+                : column.active()
                 ? String.format(Locale.ROOT, "%.2f %d %.2f", node.x(), column.naturalSurfaceY(), node.z())
                 : String.format(Locale.ROOT, "%.2f %.2f", node.x(), node.z());
-        var height = command(column.active() ? "locate.ground" : "locate.no_ground");
+        var height = node.authoredY().isPresent() ? Component.literal("authored anchor")
+                : command(column.active() ? "locate.ground" : "locate.no_ground");
         long distance = Math.round(Math.hypot(node.x() - source.getPosition().x, node.z() - source.getPosition().z));
         var coordinates = Component.literal(location).withStyle(style -> style.withColor(ChatFormatting.AQUA)
                 .withClickEvent(new ClickEvent(ClickEvent.Action.COPY_TO_CLIPBOARD, location))

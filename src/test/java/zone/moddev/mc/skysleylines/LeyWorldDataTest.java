@@ -15,6 +15,53 @@ import zone.moddev.mc.skysleylines.core.NexusLedger;
 import zone.moddev.mc.skysleylines.server.LeyWorldData;
 
 class LeyWorldDataTest {
+    @Test void capacityMultiplierPreservesConvertedFundsAndRechargeUsesTheNewBudget() {
+        var tick = new AtomicLong(100);
+        var data = new LeyWorldData(LeyProfile.DEFAULT, tick::get);
+        var node = NexusLedgerTest.NODE;
+        var currency = NexusLedgerTest.MANA;
+        data.configureCurrencies(Map.of(currency, MagicAmount.of(10)));
+        var oldLedger = data.ledger();
+        int baseCapacity = 7000;
+        assertTrue(oldLedger.transact(node, baseCapacity, 100,
+                NexusLedgerTest.request(PowerRequest.Operation.CONVERT, currency, MagicAmount.of(80)), NexusLedger.NO_HOOKS).succeeded());
+        var before = data.save(new CompoundTag(), null);
+        assertThrows(IllegalStateException.class, () -> data.applyPoolSettings(0, 100, () -> {
+            throw new IllegalStateException("test backup failure");
+        }));
+        assertEquals(before, data.save(new CompoundTag(), null));
+        data.applyPoolSettings(0, 100, () -> assertEquals(7000, oldLedger.quote(node, baseCapacity, 100).capacity()));
+        var scaled = data.save(new CompoundTag(), null);
+        assertEquals(6, scaled.getInt("schema"));
+        assertFalse(scaled.contains("pins"));
+        assertFalse(scaled.contains("playerEnergy"));
+        var loaded = LeyWorldData.load(scaled, tick::get);
+        assertEquals(LeyProfile.DEFAULT, loaded.profile());
+        loaded.configureCurrencies(Map.of(currency, MagicAmount.of(10)));
+        var ledger = loaded.ledger();
+        var overfilled = ledger.quote(node, baseCapacity, 1000);
+        assertEquals(70, overfilled.capacity());
+        assertEquals(800, overfilled.currency(currency));
+        assertEquals(MagicAmount.ZERO, overfilled.raw());
+        assertTrue(ledger.transact(node, baseCapacity, 1000,
+                NexusLedgerTest.request(PowerRequest.Operation.RETURN_TO_RAW, currency, MagicAmount.of(50)), NexusLedger.NO_HOOKS).succeeded());
+        assertEquals(MagicAmount.of(5), ledger.quote(node, baseCapacity, 2000).raw());
+        assertTrue(ledger.transact(node, baseCapacity, 2000,
+                NexusLedgerTest.request(PowerRequest.Operation.SPEND, currency, MagicAmount.of(450)), NexusLedger.NO_HOOKS).succeeded());
+        assertEquals(MagicAmount.fraction(45, 2), ledger.quote(node, baseCapacity, 8000).raw());
+        assertEquals(MagicAmount.of(40), ledger.quote(node, baseCapacity, 14000).raw());
+        assertEquals(MagicAmount.of(70), ledger.quote(node, baseCapacity, 14000).total());
+        var untouched = new NexusId("minecraft:overworld", 0, 0, 0, 1);
+        assertEquals(MagicAmount.of(70), ledger.quote(untouched, baseCapacity, 14000).raw());
+        tick.set(14000);
+        loaded.applyPoolSettings(0, NexusLedger.CAPACITY_SCALE_ONE, () -> {});
+        var reset = loaded.save(new CompoundTag(), null);
+        assertEquals(6, reset.getInt("schema"));
+        var restored = LeyWorldData.load(reset, tick::get).ledger();
+        assertEquals(7000, restored.quote(node, baseCapacity, 14000).capacity());
+        assertEquals(MagicAmount.of(70), restored.quote(node, baseCapacity, 14000).total());
+    }
+
     @Test void compressedSaveAcceptsTheExactNbtLimitAndRejectsTheNextDigitBeforeBinding() throws Exception {
         var data = new LeyWorldData(LeyProfile.DEFAULT, () -> 0);
         var id = NexusLedgerTest.MANA;

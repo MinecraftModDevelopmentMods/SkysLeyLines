@@ -17,10 +17,19 @@ public record VisionGeometry(int lineHalfWidth, List<Reach> reaches, List<Crossi
         }
     }
 
-    public record Reach(double x0, double z0, double x1, double z1, float strength) {
+    public record Reach(double x0, double z0, double x1, double z1, float strength, double y0, double y1) {
+        public Reach(double x0, double z0, double x1, double z1, float strength) {
+            this(x0, z0, x1, z1, strength, Double.NaN, Double.NaN);
+        }
+
+        public double heightAt(double fraction) { return y0 + fraction * (y1 - y0); }
+
         public Reach {
             checkPoint(x0, z0, strength);
             checkPoint(x1, z1, strength);
+            if (Double.isNaN(y0) != Double.isNaN(y1)) throw new IllegalArgumentException("Incomplete ley reach elevation");
+            checkElevation(y0);
+            checkElevation(y1);
             double length = Math.hypot(x1 - x0, z1 - z0);
             if (length < 0.01 || length > 2 * RADIUS + 0.001) {
                 throw new IllegalArgumentException("Invalid ley vision reach length");
@@ -28,8 +37,17 @@ public record VisionGeometry(int lineHalfWidth, List<Reach> reaches, List<Crossi
         }
     }
 
-    public record Crossing(double x, double z, float strength) {
-        public Crossing { checkPoint(x, z, strength); }
+    public record Crossing(double x, double z, float strength, double y) {
+        public Crossing(double x, double z, float strength) { this(x, z, strength, Double.NaN); }
+
+        public Crossing {
+            checkPoint(x, z, strength);
+            checkElevation(y);
+        }
+    }
+
+    private static void checkElevation(double y) {
+        if (!Double.isNaN(y) && !(Math.abs(y) <= 4096)) throw new IllegalArgumentException("Invalid ley elevation");
     }
 
     private static void checkPoint(double x, double z, float strength) {

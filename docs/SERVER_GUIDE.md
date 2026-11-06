@@ -28,6 +28,10 @@ Permission levels below are Minecraft command permission levels. Brackets mark o
 
 The operator vision toggle ends on logout, respawn, or loss of permission. Timed effects from other mods can continue independently. Ley Meter use requires permission level 2.
 
+## Add a named nexus
+
+See [Worldgen and nexus pins](WORLDGEN_AND_PINS.md#pin-a-nexus-in-an-existing-world) for preview, staging, retirement, and recovery commands. Locate shows authored Y for a pin and natural ground for a seeded nexus.
+
 ## Balance a live world
 
 Use **Mods → Sky’s Ley Lines → Config** in a private single-player session or edit the server TOML while the world is closed. Change `rechargeTicksOverride` to retune recharge for an existing world. A value of `72000` is three Minecraft days for a full refill. Reopen the world and check `effectiveRechargeTicks` with the profile command.

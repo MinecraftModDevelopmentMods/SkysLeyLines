@@ -16,6 +16,14 @@ Run one Gradle process at a time against the shared cache. Import the inner `Sky
 
 Validation covers deterministic boundaries/order, concurrent samplers, bounded caches/searches, saved profiles, shared currency competition, exact conversions/returns, cancelled/reentrant events, frozen rates, value-preserving migrations, unloaded recovery, fractional recharge, NBT round trips/rejection, resources, exact packaged runtimes, and visual rods feedback. Runtime receipts are separate from user gameplay acceptance. Keep failed receipts and rerun only after fixing their cause or stating the changed validation conditions.
 
+## Structure worldgen probe
+
+`worldgenProbeJar` builds the separate optional consumer. It registers a placement, a structure start and a saved marker piece. Use disposable worlds to check startup and exploration with Ley Lines present and absent.
+
+For a matched benchmark, launch once with `-Dley.structure.mode=export` for each profile or pin fixture and preserve the resulting `sites.tsv`. Start fresh copies with `-Dley.structure.bench=true` and point `-Dley.structure.oracle` at that file. Use `-Dley.structure.mode=control` for the precomputed placements and `-Dley.structure.mode=both` for live queries. Use `-Dley.structure.baseline=true` with the old JAR and control mode for historical column measurements. Compare the generated `structure-starts.tsv` before comparing the timings, allocated bytes and sampled monitor counts. Keep the packaged runtime, seed, fixture, exploration chunk set and Java settings fixed.
+
+Use `-Dley.structure.endToEndOnly=true` in both arms to time placement and generation without the synthetic column exercise and per-call counters inside the placement callback. Keep those diagnostic results alongside the full benchmark.
+
 ## Packaged documentation
 
 Edit the public Markdown guides in `docs/` and link new pages from [the documentation index](README.md). Use relative links between bundled pages so readers can extract the directory and browse it offline. The ordinary JAR packages the guides under `META-INF/skysleylines/docs/` and advertises the index in its manifest. `verifyArtifacts` checks the packaged paths and bytes against the source guides.

@@ -1,6 +1,6 @@
 # Configuration and world continuity
 
-Open **Mods → Sky’s Ley Lines → Config**. **New World Defaults** edits the settings that a world copies when its ley profile is first initialized. **Server Settings** is available in a local single-player world. It lets you pick the default Ley Vision style and set a recharge override. Reopen the world to apply a new recharge interval. The screen edits the server TOML that NeoForge loaded. Worlds using the instance server config share those settings. To make edits specific to one world, place a copy of the TOML in that world’s `serverconfig` folder before opening it. For a dedicated server or a LAN host, edit the server TOML with the world closed.
+Open **Mods → Sky’s Ley Lines → Config**. **New World Defaults** edits the settings that a world copies when its ley profile is first initialized. **Server Settings** is available in a local single-player world. It lets you pick the default Ley Vision style and tune nexus capacity and recharge. Reopen the world to apply capacity and recharge changes. The screen edits the server TOML that NeoForge loaded. Worlds using the instance server config share those settings. To make edits specific to one world, place a copy of the TOML in that world’s `serverconfig` folder before opening it. For a dedicated server or a LAN host, edit the server TOML with the world closed.
 
 `config/skysleylines-common.toml` contains defaults for NEW worlds. On first server start with the mod, the complete effective profile and version identifiers are saved in `<world>/data/skysleylines.dat`. Existing worlds retain those values even when installation defaults change. `/skysleylines profile` shows the saved values.
 
@@ -21,12 +21,14 @@ The server config supplies these settings for new and existing worlds.
 | --- | --- | --- | --- |
 | `defaultVisionStyle` | `"river"` | `"river"`, `"crackle"`, `"sparkles"`, `"glow"` | Operator vision and unstyled effects use the server default. |
 | `rechargeTicksOverride` | `0` | `0` or an integer from 1 through 1,728,000 | Read when the world opens. Zero uses the saved base interval. |
+| `nexusCapacityMultiplier` | `0.01` | `0.0001` through `100` with up to four decimal places | Read when the world opens. `1.0` uses the original capacity. |
 
 For example, use the following server TOML for Crackle vision and a three Minecraft day refill.
 
 ```toml
 defaultVisionStyle = "crackle"
 rechargeTicksOverride = 72000
+nexusCapacityMultiplier = 0.01
 ```
 
 ## Version-one landscape
@@ -45,17 +47,27 @@ Equipped dowsing rods turn towards the closest ley line within 256 blocks while 
 
 Set `defaultVisionStyle` in `config/skysleylines-server.toml` to `"river"` (default), `"crackle"`, `"sparkles"`, or `"glow"`. For a single world, put the same file in `<world>/serverconfig/` to override the instance default. Edit the config while the world is closed. The setting applies to operator vision and unstyled grants in existing and new worlds. Styled grants can override it for the viewer while they are active. All four styles are visual overlays.
 
+## Nexus pins
+
+Admin pins use a restart-applied overlay. See [Worldgen and nexus pins](WORLDGEN_AND_PINS.md) for commands and retirement rules.
+
+## Player energy policy
+
+Player pools and timed operations have their own JSON policy layers. See [Player energy pools](PLAYER_ENERGY.md) for data pack and server files, death behavior, and the schema 4 upgrade.
+
 ## Shared accounts and recharge
 
-Each node has one total capacity shared by raw and all currencies. The saved world profile and intrinsic nexus strength determine capacity. Converted balances occupy capacity. Spending frees space for raw recharge, and dowsing rods report total charge, including converted currencies.
+Each node has one capacity shared by raw and all currencies. The saved world profile and intrinsic nexus strength determine its base capacity. `nexusCapacityMultiplier` scales that number for natural and authored nexuses. The result rounds to the nearest whole raw unit, with a minimum of 1 and a maximum of 1,000,000. At `0.01`, a nexus with a base capacity of 7,000 holds 70 raw. A child currency at 10 units per raw gets 700 units from that full pool. The default full recharge is one Minecraft day of elapsed Overworld ticks.
+
+Converted balances occupy capacity. Spending frees space for raw recharge, and dowsing rods report total charge, including converted currencies. When the multiplier drops, the mod trims raw above the new limit after accounting for saved currencies. It preserves every converted unit, even if the account ends up above the new capacity. You can still use that energy. Recharge, deposits and retired-pin recovery into that account wait for room. Raising the multiplier preserves the current balance in stored accounts and lets recharge fill the extra space.
 
 Set `rechargeTicksOverride` in `skysleylines-server.toml` to `0` to use the base world profile or to an integer from `1` through `1728000` for a custom full refill interval. Restart the world to apply it. Elapsed ticks settle at the previous rate. The mod backs up the prior ledger before a change. `/skysleylines profile` shows the base and effective values. For example, `72000` gives a three Minecraft day refill. Use `<world>/serverconfig/` for a world-specific override and `config/` for the instance default.
 
 Exact raw fractions, whole currency balances, timestamps, the global account revision, and frozen world ratios are stored in `data/skysleylines.dat`. Untouched accounts are implicitly fully raw. Only full accounts with no converted funds can be pruned; fully converted accounts must remain saved. No per-node ticking or chunk loading is used.
 
-Schema-1 worlds upgrade automatically. The loader validates first and copies the original data file to a unique `skysleylines-schema1-*.dat.bak` before any upgrade is saved. Raw balances and recharge remainders retain their exact value. Layout version 1 and the saved profile remain unchanged. Unknown versions, malformed fields, duplicate IDs, invalid ratios, and over-capacity accounts fail before Minecraft can substitute defaults.
+Schema-1 worlds upgrade automatically. The loader validates first and copies the original data file to a unique `skysleylines-schema1-*.dat.bak` before any upgrade is saved. Unknown versions, malformed fields, duplicate IDs, invalid ratios, and balances above the storage limit fail before Minecraft can substitute defaults.
 
-Worlds without a change to the effective recharge rate continue to save as schema 2. The first effective change switches to schema 3, which records the new interval and remains in use even after a reset to the base rate. Older builds refuse schema 3. A recharge change creates a `skysleylines-before-recharge-*.dat.bak` copy if the world already has a ledger.
+A multiplier change uses schema 6 and keeps it after a reset to `1.0`. The first restart with `0.01` applies the reduction to existing worlds as well as new ones. To keep the original pool sizes in an existing world, set `1.0` before opening it. A multiplier change creates `skysleylines-before-capacity-*.dat.bak` when a ledger already exists. A recharge-only change creates `skysleylines-before-recharge-*.dat.bak`. Both changes settle elapsed recharge under the previous settings before saving. `/skysleylines profile` shows the effective multiplier and refill interval. The Ley Meter and `/skysleylines account` show the effective capacity at the nexus.
 
 Child mods register currencies and rate suppliers. A world remembers each currency's effective units-per-raw ratio. Removing a child preserves its balances and occupied capacity. Inactive currencies cannot receive new conversions or ordinary spending, but their value can explicitly return to raw through the API. Reinstalling the child restores access at the saved rate.
 

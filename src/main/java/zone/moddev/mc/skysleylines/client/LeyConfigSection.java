@@ -15,6 +15,7 @@ import zone.moddev.mc.skysleylines.LeyConfig;
 /** Adds the Ley Lines controls that need more than a generic text or number box. */
 final class LeyConfigSection extends ConfigurationSectionScreen {
     private EditBox rechargeField;
+    private EditBox capacityField;
 
     LeyConfigSection(Screen parent, ModConfig.Type type, ModConfig config, Component title) {
         super(parent, type, config, title);
@@ -43,9 +44,22 @@ final class LeyConfigSection extends ConfigurationSectionScreen {
     }
 
     @Override
+    protected Element createDoubleValue(String key, ValueSpec spec, Supplier<Double> source, Consumer<Double> target) {
+        if (!LeyConfig.CAPACITY_MULTIPLIER_KEY.equals(key)) return super.createDoubleValue(key, spec, source, target);
+        var element = createNumberBox(key, spec, LeyConfig::configuredCapacityMultiplier, target,
+                LeyConfig::validCapacityMultiplier, Double::parseDouble, 0.0);
+        capacityField = (EditBox) element.widget();
+        return element;
+    }
+
+    @Override
     public void onClose() {
         if (rechargeField != null && !hasValidRechargeInput()) {
             setFocused(rechargeField);
+            return;
+        }
+        if (capacityField != null && !hasValidCapacityInput()) {
+            setFocused(capacityField);
             return;
         }
         super.onClose();
@@ -54,6 +68,14 @@ final class LeyConfigSection extends ConfigurationSectionScreen {
     private boolean hasValidRechargeInput() {
         try {
             return LeyConfig.validRechargeOverride(Integer.parseInt(rechargeField.getValue()));
+        } catch (NumberFormatException invalidInput) {
+            return false;
+        }
+    }
+
+    private boolean hasValidCapacityInput() {
+        try {
+            return LeyConfig.validCapacityMultiplier(Double.parseDouble(capacityField.getValue()));
         } catch (NumberFormatException invalidInput) {
             return false;
         }

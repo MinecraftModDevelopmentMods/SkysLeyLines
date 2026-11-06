@@ -51,6 +51,7 @@ public final class LeyRuntimeProbe {
         });
         NeoForge.EVENT_BUS.addListener((NexusTransactionEvent.Post e)->posts++);
         NeoForge.EVENT_BUS.addListener(LeyRuntimeProbe::started);
+        NeoForge.EVENT_BUS.addListener(PlayerEnergyProbe::run);
         NeoForge.EVENT_BUS.addListener(LeyRuntimeProbe::commands);
     }
     private static void commands(RegisterCommandsEvent event) {

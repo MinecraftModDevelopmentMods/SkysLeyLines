@@ -52,7 +52,7 @@ public final class LeyVisionClient {
         spans = newSpans;
         var newPlumes = new ArrayList<Plume>();
         for (var crossing : current.crossings()) {
-            Vec3 centre = surface(level, crossing.x(), crossing.z());
+            Vec3 centre = surface(level, crossing.x(), crossing.z(), crossing.y());
             if (centre != null) {
                 AABB bounds = new AABB(centre.add(-22, -1, -22), centre.add(22, 62, 22));
                 newPlumes.add(new Plume(centre, crossing.strength(), bounds));
@@ -67,12 +67,12 @@ public final class LeyVisionClient {
         double ux = dx / length, uz = dz / length;
         double offset = reach.x0() * ux + reach.z0() * uz;
         double at = 0;
-        Vec3 from = surface(level, reach.x0(), reach.z0());
+        Vec3 from = surface(level, reach.x0(), reach.z0(), reach.y0());
         // A world-aligned sampling grid keeps the filaments in place when the server patch moves.
         double next = (Math.floor(offset / STEP) + 1) * STEP - offset;
         while (at < length) {
             double end = Math.min(length, next);
-            Vec3 to = surface(level, reach.x0() + end * ux, reach.z0() + end * uz);
+            Vec3 to = surface(level, reach.x0() + end * ux, reach.z0() + end * uz, reach.heightAt(end / length));
             if (from != null && to != null && end - at > 0.001) {
                 double startFade = Math.clamp(Math.min(at, length - at) / 12, 0, 1);
                 double endFade = Math.clamp(Math.min(end, length - end) / 12, 0, 1);
@@ -85,11 +85,12 @@ public final class LeyVisionClient {
         }
     }
 
-    private static Vec3 surface(ClientLevel level, double x, double z) {
+    private static Vec3 surface(ClientLevel level, double x, double z, double elevation) {
         int bx = Mth.floor(x), bz = Mth.floor(z);
         var chunk = level.getChunkSource().getChunk(SectionPos.blockToSectionCoord(bx),
                 SectionPos.blockToSectionCoord(bz), ChunkStatus.FULL, false);
         if (chunk == null) return null;
+        if (Double.isFinite(elevation)) return new Vec3(x, elevation + 0.05, z);
         // WORLD_SURFACE is sent to clients and puts the river above water and terrain.
         int y = chunk.getHeight(Heightmap.Types.WORLD_SURFACE, bx, bz);
         return y < level.getMinBuildHeight() ? null : new Vec3(x, y + 1.05, z);

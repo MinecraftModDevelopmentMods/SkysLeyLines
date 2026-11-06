@@ -4,6 +4,9 @@ import java.util.*;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.LevelHeightAccessor;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.level.levelgen.RandomState;
+import net.neoforged.neoforge.event.level.LevelEvent;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.resources.ResourceLocation;
 import net.neoforged.neoforge.common.NeoForge;
@@ -16,7 +19,39 @@ import zone.moddev.mc.skysleylines.core.NexusLedger;
 public final class LeyServerContext {
     private static final Map<ServerLevel, LeyLinesApi.Context> CONTEXTS = new IdentityHashMap<>();
     private static final Map<MinecraftServer, LeyWorldData> WORLDS = new IdentityHashMap<>();
+    private static final Map<MinecraftServer, PlayerEnergy> PLAYER_ENERGY = new IdentityHashMap<>();
+    private record WorldgenBinding(ServerLevel level, Optional<LeyFieldSampler> sampler) {}
+    private static volatile Map<RandomState, WorldgenBinding> worldgen = Map.of();
+
     private LeyServerContext() {}
+
+    public static Optional<LeyFieldSampler> worldgenSampler(RandomState state) {
+        var binding = worldgen.get(Objects.requireNonNull(state));
+        return binding == null ? Optional.empty() : binding.sampler;
+    }
+
+    public static void levelLoad(LevelEvent.Load event) {
+        if (!(event.getLevel() instanceof ServerLevel level) || !level.dimension().equals(Level.OVERWORLD)) return;
+        var sampler = forLevel(level).field();
+        synchronized (LeyServerContext.class) {
+            var next = new IdentityHashMap<>(worldgen);
+            next.put(level.getChunkSource().randomState(), new WorldgenBinding(level, Optional.of(sampler)));
+            worldgen = Collections.unmodifiableMap(next);
+        }
+    }
+
+    public static void levelUnload(LevelEvent.Unload event) {
+        if (event.getLevel() instanceof ServerLevel level) {
+            clearWorldgen(binding -> binding.level == level);
+            CONTEXTS.remove(level);
+        }
+    }
+
+    private static synchronized void clearWorldgen(java.util.function.Predicate<WorldgenBinding> match) {
+        var next = new IdentityHashMap<>(worldgen);
+        next.values().removeIf(match);
+        worldgen = Collections.unmodifiableMap(next);
+    }
     private static void serverThread(MinecraftServer server) {
         if (!server.isSameThread()) throw new IllegalStateException("Ley context/reserve operations require the server thread");
     }
@@ -34,7 +69,7 @@ public final class LeyServerContext {
         LeyNetwork field = new LeyNetwork(level.getSeed(), dimension, data.profile(), (x, z) -> {
             int free = generator.getBaseHeight(x, z, Heightmap.Types.OCEAN_FLOOR_WG, heights, randomState);
             return free <= heights.getMinBuildHeight() ? OptionalInt.empty() : OptionalInt.of(free - 1);
-        }, dimension.equals("minecraft:overworld"));
+        }, dimension.equals("minecraft:overworld"), data.activePins());
         NexusPowerService power = new NexusPowerService() {
             @Override public Optional<NexusSnapshot> quoteAt(int x, int y, int z) {
                 serverThread(server);
@@ -51,7 +86,8 @@ public final class LeyServerContext {
                 Optional<NexusSnapshot> quote = quoteAt(request.x(), request.y(), request.z());
                 if (quote.isEmpty()) return PowerResult.failed(PowerResult.Status.NO_NEXUS);
                 NexusSnapshot node = quote.get();
-                return data.ledger().transact(node.nexus().id(), node.capacity(), server.overworld().getGameTime(), request, new NexusLedger.Hooks() {
+                return data.ledger().transact(node.nexus().id(), node.nexus().capacity(data.profile()),
+                        server.overworld().getGameTime(), request, new NexusLedger.Hooks() {
                     @Override public boolean before(PowerResult.Receipt proposed) {
                         return !NeoForge.EVENT_BUS.post(new NexusTransactionEvent.Pre(level, proposed)).isCanceled();
                     }
@@ -65,7 +101,14 @@ public final class LeyServerContext {
         };
         return new LeyLinesApi.Context(data.profile(), field, power);
     }
+    public static PlayerEnergy playerEnergy(MinecraftServer server) {
+        serverThread(server);
+        return PLAYER_ENERGY.computeIfAbsent(server, key -> new PlayerEnergy(key, world(key)));
+    }
+
     public static void clear(MinecraftServer server) {
+        clearWorldgen(binding -> binding.level.getServer() == server);
+        PLAYER_ENERGY.remove(server);
         LeyCommands.clear(server);
         VisionUpdates.clear(server);
         CONTEXTS.keySet().removeIf(level -> level.getServer() == server);

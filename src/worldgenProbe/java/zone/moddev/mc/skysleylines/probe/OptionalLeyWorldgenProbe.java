@@ -29,6 +29,7 @@ public final class OptionalLeyWorldgenProbe {
         features.register("sample", SampleFeature::new);
         features.register(bus);
         present = ModList.get().isLoaded("skysleylines");
+        StructureWorldgenProbe.register(bus, present);
         if (present) {
             NeoForge.EVENT_BUS.addListener(OptionalLeyWorldgenProbe::load);
             NeoForge.EVENT_BUS.addListener(OptionalLeyWorldgenProbe::unload);

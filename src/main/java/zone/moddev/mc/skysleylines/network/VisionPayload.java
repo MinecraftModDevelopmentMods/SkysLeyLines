@@ -30,12 +30,15 @@ public record VisionPayload(ResourceLocation dimension, VisionGeometry geometry,
             buffer.writeDouble(reach.x1());
             buffer.writeDouble(reach.z1());
             buffer.writeFloat(reach.strength());
+            buffer.writeDouble(reach.y0());
+            buffer.writeDouble(reach.y1());
         }
         buffer.writeByte(geometry.crossings().size());
         for (var crossing : geometry.crossings()) {
             buffer.writeDouble(crossing.x());
             buffer.writeDouble(crossing.z());
             buffer.writeFloat(crossing.strength());
+            buffer.writeDouble(crossing.y());
         }
     }
 
@@ -49,13 +52,13 @@ public record VisionPayload(ResourceLocation dimension, VisionGeometry geometry,
         var reaches = new ArrayList<VisionGeometry.Reach>(reachCount);
         for (int i = 0; i < reachCount; i++) {
             reaches.add(new VisionGeometry.Reach(buffer.readDouble(), buffer.readDouble(), buffer.readDouble(),
-                    buffer.readDouble(), buffer.readFloat()));
+                    buffer.readDouble(), buffer.readFloat(), buffer.readDouble(), buffer.readDouble()));
         }
         int crossingCount = buffer.readUnsignedByte();
         if (crossingCount > VisionGeometry.MAX_CROSSINGS) throw new IllegalArgumentException("Too many ley crossings");
         var crossings = new ArrayList<VisionGeometry.Crossing>(crossingCount);
         for (int i = 0; i < crossingCount; i++) {
-            crossings.add(new VisionGeometry.Crossing(buffer.readDouble(), buffer.readDouble(), buffer.readFloat()));
+            crossings.add(new VisionGeometry.Crossing(buffer.readDouble(), buffer.readDouble(), buffer.readFloat(), buffer.readDouble()));
         }
         return new VisionPayload(dimension, new VisionGeometry(width, reaches, crossings), style);
     }
